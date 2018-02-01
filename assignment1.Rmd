@@ -1,0 +1,43 @@
+---
+title: "D607_Assignment1"
+author: "Iden Watanabe"
+date: "February 1, 2018"
+output: html_document
+---
+
+```{r}
+# Mushroom data originally from UCI Machine Learning Repository: https://archive.ics.uci.edu/ml/datasets/Mushroom
+# First, let's download the data from my GitHub
+directory <- getwd()
+download.file(url = "https://raw.githubusercontent.com/EyeDen/data607/master/agaricus-lepiota.data", destfile = paste(directory, "agaricus-lepiota.data", sep = "/"))
+mushroom <- read.table("agaricus-lepiota.data", sep = ",")
+
+# Check that we have read the table
+head(mushroom, 10)
+
+# Now, let's examine a subset
+# The data dictionary is found here: https://raw.githubusercontent.com/EyeDen/data607/master/agaricus-lepiota.names
+
+# Classes, cap-shape, cap-color, odor, population, and habitat sound interesting
+subshroom <- mushroom[, c("V1", "V4", "V6", "V22", "V23")]
+
+# Now let's rename the columns into something more understandable
+colnames(subshroom) <- c("Classification", "CapColor", "Odor", "Population", "Habitat")
+
+# Now we need to change the values for each column.
+library(plyr)
+subshroom$Classification <- mapvalues(subshroom$Classification, c("e", "p"), c("edible", "poisonous"))
+
+subshroom$CapColor <- mapvalues(subshroom$CapColor, c("n", "b", "c", "g", "r", "p", "u", "e", "w", "y"), c("brown", "buff", "cinnamon", "gray", "green", "pink", "purple", "red", "white", "yellow"))
+
+subshroom$Odor <- mapvalues(subshroom$Odor, c("a", "l", "c", "y", "f", "m", "n", "p", "s"), c("almond", "anise", "creosote", "fishy", "foul", "musty", "none", "pungent", "spicy"))
+
+subshroom$Population <- mapvalues(subshroom$Population, c("a", "c", "n", "s", "v", "y"), c("abundant", "clustered", "numerous", "scattered", "several", "solitary"))
+
+subshroom$Habitat <- mapvalues(subshroom$Habitat, c("g", "l", "m", "p", "u", "w", "d"), c("grasses", "leaves", "meadows", "paths", "urban", "waste", "woods"))
+
+
+# All done.  Let's check.
+head(subshroom, 20)
+
+```
