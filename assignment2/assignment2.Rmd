@@ -1,0 +1,23 @@
+---
+title: "D607_Assignment2"
+author: "Iden Watanabe"
+date: "February 6, 2018"
+output:
+  word_document: default
+  html_document: default
+---
+
+Note that this requires the RMySQL database interface and DBI packages.
+Also note that the password should be changed to your own personal MySQL password, if applicable.
+
+```{r}
+library(DBI)
+library(RMySQL)
+
+con <- dbConnect(RMySQL::MySQL(), user = "root", password = "******", dbname = "movies")
+
+movies <- dbReadTable(con, "movies")
+
+movies
+
+```
