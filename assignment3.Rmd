@@ -1,0 +1,107 @@
+---
+title: "assignment3"
+author: "Iden Watanabe"
+date: "February 13, 2018"
+output: html_document
+---
+
+Simpsons!
+![](D:/Grad School/2018 Spring/DATA 607/assignment3q1.png)
+```{r}
+library(stringr)
+name <- c("Moe Szyslak", "Burns, C. Montgomery", "Rev. Timothy Lovejoy", "Ned Flanders", "Simpson, Homer", "Dr. Julius Hibbert")
+```
+
+1. So we're going to take it on faith that any name separated by a space or blank character is automatically in the proper format, otherwise we'd need some sort of list of first and last names to check against, but there are some names that pull double duty, and so it would get ridiculously complicated.  
+
+Therefore, any name that has a comma in it must be in the wrong order.  If it has only a blank space, then it is in the correct order.
+```{r}
+str_detect(name, ",")
+```
+
+We know there are two that are not already in the correct format - the second and fifth elements of `name`.  To conform to the `first_name last_name` format, we only need to change those elements.  Let's do this with a copy.
+
+```{r}
+formatted.name <- name
+
+reformat.names <- function(x){
+  comma <- str_detect(name, ",")
+  comma.pos <- which(comma)
+  
+  for(i in comma.pos){
+    l <- str_locate(x[i], ",")
+    last <- str_sub(x[i], end = l[1] - 1)
+    first <- str_sub(x[i], start = l[1] + 2)
+    full.name <- str_c(first, last, sep = " ")
+    x[i] <- full.name
+  }
+  
+  return(x)
+}
+
+formatted.name <- reformat.names(formatted.name)
+formatted.name
+```
+
+2. This is fairly straightforward, and we can utilize the `str_detect` function in `stringr`
+```{r}
+titles.name <- str_detect(name, "Dr.|Rev.")
+titles.name
+```
+
+We could even expand on it a little more by adding in other titles, such as `str_detect(name, "Dr.|Rev.|Mr.|Mrs.")`.
+
+3. By "second name", I assume they mean a middle name.  This could be done with a pair of stringr functions, `str_count` and `str_detect`.  We assume that if a person has three names, then their entry must have at least two blank spaces ("first last" vs "first mid last").  Of those, we can then check if the extra space is because of a title.
+```{r}
+second.name <- str_count(name, " ") > 1 & str_detect(name, "Dr.|Rev.") == FALSE
+second.name
+```
+
+![](D:/Grad School/2018 Spring/DATA 607/assignment3q2.png)
+
+1. Any number matched one or more times in front of a $ character.  
+```{r}
+ex1 <- "I never know if it's 32$ or $32."
+str_extract_all(ex1, "[0-9]+\\$")
+```
+
+2. Any series of 4 lowercase letters or less, as it is bound by "\\b" being the word edge.
+```{r}
+ex2 <- "This should extract all words of FOUR lowercase letters or Less."
+str_extract_all(ex2, "\\b[a-z]{1,4}\\b")
+```
+
+3. Any string of characters that preceed ".txt" and a new character line.
+```{r}
+ex3 <- "Was the file test.txt or test1.txt?\nActually, it's test2.txt\n"
+str_extract_all(ex3, ".*?\\.txt$")
+```
+
+4. Essentially this is a date in the format of MM/DD/YYYY.
+```{r}
+ex4 <- "Do you write your birthday 6/6/80 or 06/06/1980 or do you use dashes?"
+str_extract_all(ex4, "\\d{2}/\\d{2}/\\d{4}")
+```
+
+5. This will find any text within HTML tags so long as those tags are of the <a></a> type of format.
+```{r}
+ex5 <- "<h2>I <b>HATE</b> having to format my blog <i>manually</i>!  <img scr = angry_cute_cat.gif /> "
+str_extract_all(ex5, "<(.+?)>.+?</\\1>")
+
+```
+![](D:/Grad School/2018 Spring/DATA 607/assignment3q3.png)
+
+At first glance, the code seems like a bunch of gibberis; however, the hint points out that _"some of the characters are more revealing than others"_.  On closer inspection, some of the letters are capitalized.  Looking at the first line alone, you can easily pick out `C O N G R A T`, which is pretty close to "Congratulations" or "CONGRATS!".  So let's try that out first.
+
+```{r}
+code <- "clcopCow1zmstc0d87wnkig7OvdicpNuggvhryn92Gjuwczi8hqrfpRxs5Aj5dwpn0Tanwo Uwisdij7Lj8kpf03AT5Idr3coc0bt7yczjatOaootj55t3Nj3ne6c4Sfek.r1w1YwwojigO d6vrfUrbz2.2bkAnbhzgv4R9i05zEcrop.wAgnb.SqoU65fPa1otfb7wEm24k6t3sR9zqe5 fy89n6Nd5t9kc4fE905gmc4Rgxo5nhDk!gr"
+
+answer <- str_extract_all(code, "[:upper:]")
+answer
+```
+
+Oops, that's still a little hard to decipher, but clearly we're on the right track.  Looking again, now that we've extracted the letters, we see that there are strategically placed periods separating each word, like a telegraph.
+
+```{r}
+answer <- str_extract_all(code, "[[:upper:].!]")
+cat(unlist(answer))
