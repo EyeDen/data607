@@ -15,7 +15,8 @@ Let's start by reading in the file.
 
 ```{r}
 library(stringr)
-
+url <- "https://raw.githubusercontent.com/EyeDen/data607/master/tournamentinfo.txt"
+download.file(url, destfile = "tournamentinfo.txt")
 tour.info <- read.csv("tournamentinfo.txt", header = FALSE, sep = "|")
 head(tour.info, 10)
 ```
