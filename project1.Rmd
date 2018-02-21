@@ -1,0 +1,130 @@
+---
+title: "Data 607 Project 1"
+author: "Iden Watanabe"
+date: "February 21, 2018"
+output: html_document
+---
+
+![Excerpt from source file](D:/Grad School/2018 Spring/DATA 607/proj1excerpt.png)
+
+Our purpose is to take the source file `tournamentinfo.txt` and generate a .CSV file that has the following information for each player: `Player's Name, Player's State, Total Number of Points, Players' Pre-Rating, and Average Pre Chess Rating of Opponents`.
+
+We calculate the last column by looking up the pre rating of each opponent by the pair number.  So Gary Hua's first opponent in Round 1 was pair number 39, Joel R Hendon, who had a pre chess rating of 1436P23, but we only care about 1436.  We add up the rating for all the opponents, then divide by seven to arrive at the `Average Pre Chess Rating of Opponents`.
+
+Let's start by reading in the file.
+
+```{r}
+library(stringr)
+
+tour.info <- read.csv("tournamentinfo.txt", header = FALSE, sep = "|")
+head(tour.info, 10)
+```
+
+Not bad, but it's not exactly structured the way we'd like.  Firstly, the source file actually contains two headers.  This means that every entry is really a pair.  However, if we examine each entry's second row, we will see that we don't need all the information contained.  Secondly, the "------" lines might make the text file more readable, but turns our data frame into a mess.  Lastly, the final column is nothing but NA values, a quirk of the original file.
+
+Removing the extraneous characters is simple to do.  By examining the original text file in a text editor, we can see that it has 196 lines and that the last line is also a meaningless row of "------".  Alternatively, if the text file is too unwieldly to read, we can peak at it with this:
+
+```{r}
+tail(tour.info, 10)
+```
+
+Again, row 196 is the last row and is nothing but the character "------".  Because each entry is a pair, and each pair of entries is separated by dashes, there is an obvious pattern we can exploit.  Each dash line occurs three lines after the previous.  Let us remove them this way:
+
+```{r}
+rows.to.delete <- seq(from = 1, to = 196, by = 3)
+tour.info <- tour.info[-rows.to.delete, ]
+head(tour.info, 10)
+```
+
+Much better!  Now let's work on extracting only the information we need from the second row of each paired row.  We only need `Player's State` from the first column, and their `Pre-Rating Score` from the second.  For that, we'll need to use regular expressions.
+
+First, we will clean up the row numbers to better see the pattern we'll need for the paired rows.
+
+```{r}
+row.names(tour.info) <- 1:nrow(tour.info)
+head(tour.info)
+tail(tour.info)
+```
+
+The only rows we're concerned about right now starts at row 4 for `Gary Hua`, ends at row 130 for `Ben Li`, and are separated by one row.  Our sequence will look like this.
+
+```{r}
+rows.to.extract <- seq(from = 4, to = 130, by = 2)
+```
+
+We'll start with the states, because it's simpler.
+
+```{r}
+states <- as.character(tour.info[rows.to.extract, 1])
+states <- str_replace_all(states, pattern = " ", replacement = "")
+states
+```
+
+Now let's get the scores.  The obvious delimiters should be the `R:` that precedes the pre-score, and the `->` that separates the pre and post score.  However, we know from our very first example that some scores have characters in them such as `1436P23`.  Also, some scores do not break a thousand and are padded with two spaces instead of one.  We can simplify the regex like so: `"R:\\s+\\d+`.
+
+```{r}
+prescores <- str_extract(tour.info[rows.to.extract, 2], pattern = "R:\\s+\\d+")
+prescores <- as.integer(str_replace_all(prescores, pattern = "R:\\s+", replacement = ""))
+prescores
+```
+
+Next we need to convert the opponents into integers.  For this assignment we don't care whether a player won, lost, had a bye, or any other stat.  We only care about who their opponent was, if they had one at all.  To make this even easier, we can now delete the rows we no longer need.
+
+```{r}
+tour.info <- tour.info[-c(1, 2, rows.to.extract), ]
+tour.info$V12 <- prescores
+op.cols <- c(4, 5, 6, 7, 8, 9, 10)
+
+for(i in op.cols){
+  tour.info[, i] <- as.integer(str_extract(tour.info[, i], pattern = "\\s+\\d*"))
+}
+
+tour.info[is.na(tour.info)] <- 0
+row.names(tour.info) <- 1:nrow(tour.info)
+colnames(tour.info) <- c("PairID", "Player.Name", "TotalPts", "R1", "R2", "R3", "R4", "R5", "R6", "R7", "Player.State", "PreChess")
+```
+
+
+Finally we've got a clean data frame.  All that's left is to calculate the `Average Pre Chess Rating of Opponents`.
+
+```{r}
+tour.info$Avg.Opp.Rating <- ""
+avg.rating <- function(x, columns){
+  # Get playerIDs
+  for(i in 1:64){
+    opponents <- x[i, columns]
+    # Get Pre Chess rating for ID (if applicable)
+    num.op <- 0
+    sum <- 0
+    for(j in opponents){
+      if(j != 0){
+        sum <- sum + x[j, 12]
+        num.op <- num.op + 1
+      }
+    }
+    # Get Average
+    avg <- sum/num.op
+    # Insert into column
+    x[i, 13] <- avg
+  }
+  
+  return(x)
+}
+
+tour.info <- avg.rating(tour.info, op.cols)
+head(tour.info, 10)
+```
+
+Almost there.  We just need to round the numbers, as indicated in the prompt.
+
+```{r}
+tour.info$Avg.Opp.Rating <- round(as.integer(tour.info[,13]))
+```
+
+Now we write the required information to a .CSV.
+
+```{r}
+final <- subset(tour.info, select = c("Player.Name", "Player.State", "TotalPts", "PreChess", "Avg.Opp.Rating"))
+head(final, 10)
+write.csv(final, file = "chessinfo.csv")
+```
