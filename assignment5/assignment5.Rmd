@@ -1,0 +1,141 @@
+---
+title: "Assignment 5"
+author: "Iden Watanabe"
+date: "February 26, 2018"
+output: html_document
+---
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+airlines <- read.csv("assignment5.csv")
+airlines
+```
+We see that there are only two airlines, `Alaska` and `AM West`, but the data is not quite tidy.  For every airport, it contains two observations rather than one due to the `on time` and `delayed` column.  If we'd like it to be in a wide format, we should look into doubling the number of airport observations, so there are `Los.Angeles.On.Time` and `Los.Angeles.Delayed` for example.
+
+Meantime, we can start by simply removing the extra blank row separating the two airline observations.
+
+```{r}
+airlines <- airlines[-3,]
+```
+
+Using the `dplyr` package we could have done the same in a more complicated fashion by doing `airlines <- as.data.frame(slice(airlines, c(1, 2, 4, 5)))`
+
+Now let's try to move the second set of observations into their own columns.
+
+```{r}
+delays <- filter(airlines, X.1 == "delayed")
+```
+
+Once we have the information, we can go ahead and delete the rows from the main data frame.
+
+```{r}
+airlines <- airlines[c(1, 3), ]
+```
+
+Now we extract the relevant information for each airport.  Then we can add the information back into the data frame, `airlines`, but in the appropriate columns.
+
+```{r}
+alaska.delay <- as.data.frame(slice(delays, 1))[, 3:7]
+amwest.delay <- as.data.frame(slice(delays, 2))[, 3:7]
+
+new.col.names <- c("Los.Angeles.Delayed", "Phoenix.Delayed", "San.Diege.Delayed", "San.Francisco.Delayed", "Seattle.Delayed")
+
+airlines[new.col.names] <- alaska.delay
+airlines
+```
+
+It's not ideal, but it's okay that we've duplicated the delay times for `Alaska` in `AM West's` row.  We will simply over write that information, then finish tidying up the data frame.
+
+```{r}
+airlines[2, 8:12] <- amwest.delay
+airlines <- airlines[, c(1, 3:12)]
+colnames(airlines) <- c("Airline", "Los.Angeles.On.Time", "Phoenix.On.Time", "San.Diego.On.Time", "San.Francisco.On.Time", "Seattle.On.Time", new.col.names)
+
+airlines
+```
+
+Perfect!  We could have also renamed the remaining columns using `dplyr`.
+
+`rename(airlines, Airline = X, Los.Angeles.On.Time = Los.Angeles, Phoenix.On.Time = Phoenix, San.Diego.On.Time = San.Diego, San.Francisco.On.Time = San.Francisco, Seattle.On.Time = Seattle)`
+
+Now let's analyze the arrivals and delays for both airlines.
+
+```{r}
+airlines$Avg.On.Time <- mean(as.numeric(airlines[1, 2:6]))
+airlines[2, 12] <- mean(as.numeric(airlines[2, 2:6]))
+airlines$Avg.Delayed <- mean(as.numeric(airlines[1, 7:11]))
+airlines[2, 13] <- mean(as.numeric(airlines[2, 7:11]))
+
+a <- ggplot(data = airlines, aes(x = Airline, y = Avg.On.Time)) +
+  geom_bar(stat = "identity") +
+  xlab("Airlines") +
+  ylab("Num of Planes")
+
+b <- ggplot(data = airlines, aes(x = Airline, y = Avg.Delayed)) +
+  geom_bar(stat = "identity") +
+  xlab("Airlines") +
+  ylab("Num of Planes")
+
+a
+
+b
+```
+
+At first glance, AM West seems to perform significantly better than Alaska in arrivals, and worse in delays, but that's because we're simply comparing the values directly.  Let's take a closer look.
+
+```{r}
+sum(as.numeric(airlines[1, 2:11]))
+sum(as.numeric(airlines[2, 2:11]))
+```
+
+AM West handles nearly twice the number of flights that Alaska does.  It'd be unfair to take a straight comparison between both airlines' performances.  What if we looked at the percentage?
+
+```{r}
+total.flights.alaska <- c(0, 0, 0, 0, 0)
+total.flights.amwest <- c(0, 0, 0, 0, 0)
+
+air.final <- airlines
+
+for(i in 2:6){
+  total.flights.alaska[i - 1] <- airlines[1, i] + airlines[1, i + 5]
+  total.flights.amwest[i - 1] <- airlines[2, i] + airlines[2, i + 5]
+}
+```
+
+Interesting to note that, with the sums in hand, we can see which airport seems to be the main airport hub for each airline.  For Alaska, their main hub is Seattle with 2,146 total flights, and AM West uses Phoenix with 5,255 total flights.
+
+```{r}
+for(i in 2:6){
+  air.final[1, i] <- airlines[1, i] / total.flights.alaska[i - 1]
+  air.final[2, i] <- airlines[2, i] / total.flights.amwest[i - 1]
+}
+
+for(i in 7:11){
+  air.final[1, i] <- airlines[1, i] / total.flights.alaska[i - 6]
+  air.final[2, i] <- airlines[2, i] / total.flights.amwest[i - 6]
+}
+
+air.final[1, 12] <- mean(as.numeric(air.final[1, 2:6]))
+air.final[2, 12] <- mean(as.numeric(air.final[2, 2:6]))
+air.final[1, 13] <- mean(as.numeric(air.final[1, 7:11]))
+air.final[2, 13] <- mean(as.numeric(air.final[2, 7:11]))
+
+c <- ggplot(data = air.final, aes(x = Airline, y = Avg.On.Time)) +
+  geom_bar(stat = "identity") +
+  xlab("Airlines") +
+  ylab("Percentage of Planes")
+
+d <- ggplot(data = air.final, aes(x = Airline, y = Avg.Delayed)) +
+  geom_bar(stat = "identity") +
+  xlab("Airlines") +
+  ylab("Percentage of Planes")
+
+c
+
+d
+
+```
+
+So, adjusting for the difference in volume, it looks as though Alaska Airlines performs better on average than AM West.  It has slightly more on time flights, and much less delays. 
