@@ -1,0 +1,627 @@
+---
+title: "Project 2"
+author: "Iden Watanabe"
+date: "March 6, 2018"
+output: html_document
+---
+
+## Hawaii's Farmer's Markets
+
+```{r, echo = FALSE, message = FALSE}
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(ggplot2)
+library(reshape2)
+```
+
+Let's start with the Hawaii Farmer's Markets data, because this will take a lot of work to tidy.
+
+```{r}
+hawaii.url <- "https://raw.githubusercontent.com/EyeDen/data607/master/Project%202/Hawaii_Farmer_s_Markets.csv"
+download.file(hawaii.url, "farmers_markets.csv")
+hi.farmers.markets <- read.csv("farmers_markets.csv", na.strings = c("", " "))
+```
+
+![](D:/Grad School/2018 Spring/data607/Project 2/header.png)
+
+To begin with, there is a __huge__ section of data that is entered incorrectly.  Near as I can assume, the original CSV should have had sections for each island's farmer's markets, as evidenced by the multiple headers within the file.  However, at some point someone simply put all the farmer's markets together, which is why there is an `Island` column.
+
+![](D:/Grad School/2018 Spring/data607/Project 2/wrong.png)
+
+Moreover, we see that on the incorrectly entered entries, the farmer's market name contains multiple lines of information.  Whoever entered this used a newline character rather than a comma, or simply copy-pasted from something else.  Fortunately, those incorrect entries are all duplicates.  Just searching through the CSV in Excel was enough to see this.  That means we can simply delete those entries out of hand.
+
+```{r}
+hi.farmers.markets <- hi.farmers.markets[-c(34:146), ]
+
+```
+
+Conveniently this also removes the duplicate headers throughout the dataset.
+
+There are special characters within our data as well that we don't need.  `â???T` shows up in multiple names.  As I'm not sure what they might mean, I am opting to remove them.  Likewise, the occassional `\n` shows up throughout our data.
+
+```{r}
+hi.farmers.markets$FARMER.S.MARKET <- iconv(hi.farmers.markets$FARMER.S.MARKET, to = "ASCII//TRANSLIT")
+
+hi.farmers.markets[6, 1]
+```
+
+All those weird characters are now converted to `a?T`, so we can remove them and the `\n` through regex.
+
+```{r}
+hi.farmers.markets$FARMER.S.MARKET <- str_replace_all(hi.farmers.markets$FARMER.S.MARKET, "a\\?T", "")
+hi.farmers.markets$FARMER.S.MARKET <- str_replace_all(hi.farmers.markets$FARMER.S.MARKET, "\n", "")
+hi.farmers.markets$Location.1 <- str_replace_all(hi.farmers.markets$Location.1, "\n", " ")
+```
+
+Before we move on, let's decide what we'd like to examine.  There are a lot of missing values in this dataset.  Had we more time, it might be possible to fill the gaps, but for now let's focus on the general schedule for each farmer's market, and which island they serve.
+
+We do have a slight problem where some island values are incorrectly filled with websites, so we'll also take care of that now.
+
+```{r}
+hi.farmers.markets <- hi.farmers.markets[, -c(10, 11, 13, 14, 15, 16)]
+hi.farmers.markets$Island <- str_replace_all(hi.farmers.markets$Island, "www\\.co\\.honolulu\\.hi\\.us\\/parks\\/programs\\/pom\\s?|\nhttp\\:\\/\\/alamoanafarmersmarket\\.com\\/ala\\-moana\\.html", "")
+head(hi.farmers.markets, 10)
+```
+
+Now let's try working on the hours of operations!
+
+```{r}
+hi.farmers.markets$Open <- ""
+hi.farmers.markets$Close <- ""
+hi.farmers.markets$Diff <- ""
+```
+
+My thoughts are to split the hours between `Open` and `Close` for those with actual hours of operations.  After all, how would one quantify a farmer's market with only a single time?  Or the one market that is `"All Day"`?  Also, we'll add a column for how long they are operating.
+
+```{r}
+split.time <- function(x){
+  for(i in 1:length(x$Time)){
+    hours <- str_extract(x$Time[i], "\\d+\\:\\d+\\s?[:upper:]{2} to \\d+\\:\\d+\\s?[:alpha:]{2,}|\\d+\\:\\d+\\s?[:alpha:]{2} \\- \\d+\\:\\d+\\s?[:alpha:]{2,}")
+    if(!is.na(hours)){
+      open.hour <- str_extract(hours, "\\d+\\:\\d+\\s?[:upper:]{2}")
+      close.hour <- str_extract(hours, "\\s\\d+\\:\\d+\\s?[:alpha:]{2,}")
+      
+      if(!str_detect(open.hour, "\\s")){
+        l <- str_extract(open.hour, "\\d+\\:\\d+")
+        r <- str_extract(open.hour, "[:upper:]{2}")
+        open.hour <- paste(l, r, sep = " ")
+      }
+      
+      if(str_detect(close.hour, "NOON|Noon|noon")){
+        close.hour <- str_replace(close.hour, "NOON|Noon|noon", "PM")
+      }
+      
+      close.hour <- str_replace(close.hour, "\\s", "")
+      
+      if(!str_detect(close.hour, "\\s")){
+        l <- str_extract(close.hour, "\\d+\\:\\d+")
+        r <- str_extract(open.hour, "[:upper:]{2}")
+        close.hour <- paste(l, r, sep = " ")
+      }
+    
+      #x$Open[i] <- format(strptime(open.hour, format = "%H:%M %p"))
+      #x$Close[i] <- format(strptime(close.hour, format = "%H:%M %p"))
+      
+      o <- format(strptime(open.hour, format = "%H:%M %p"))
+      c <- format(strptime(close.hour, format = "%H:%M %p"))
+      
+      d <- abs(difftime(o, c, units = "hours"))
+      
+      x$Open[i] <- open.hour
+      x$Close[i] <- close.hour
+      x$Diff[i] <- d
+    }
+  }
+  
+  return(x)
+}
+
+hi.farmers.markets <- split.time(hi.farmers.markets)
+hi.farmers.markets <- hi.farmers.markets[, -9]
+```
+
+We have two more things to settle before we can get to any analyzing.  First, we should remove any duplicate farmer's markets, if any.  Then, we should reformat the days.  We don't need the `*` for our purpose, but I think we can keep the `X`.
+
+```{r}
+hi.farmers.markets <- hi.farmers.markets[!duplicated(hi.farmers.markets$FARMER.S.MARKET), ]
+
+hi.farmers.markets$Sunday[!is.na(hi.farmers.markets$Sunday)] <- "X"
+hi.farmers.markets$Sunday <- factor(hi.farmers.markets$Sunday)
+
+hi.farmers.markets$Monday[!is.na(hi.farmers.markets$Monday)] <- "X"
+hi.farmers.markets$Monday <- factor(hi.farmers.markets$Monday)
+
+hi.farmers.markets$Tuesday[!is.na(hi.farmers.markets$Tuesday)] <- "X"
+hi.farmers.markets$Tuesday <- factor(hi.farmers.markets$Tuesday)
+
+hi.farmers.markets$Wednesday[!is.na(hi.farmers.markets$Wednesday)] <- "X"
+hi.farmers.markets$Wednesday <- factor(hi.farmers.markets$Wednesday)
+
+hi.farmers.markets$Thursday[!is.na(hi.farmers.markets$Thursday)] <- "X"
+hi.farmers.markets$Thursday <- factor(hi.farmers.markets$Thursday)
+
+hi.farmers.markets$Friday[!is.na(hi.farmers.markets$Friday)] <- "X"
+hi.farmers.markets$Friday <- factor(hi.farmers.markets$Friday)
+
+hi.farmers.markets$Saturday[!is.na(hi.farmers.markets$Saturday)] <- "X"
+hi.farmers.markets$Saturday <- factor(hi.farmers.markets$Saturday)
+
+colnames(hi.farmers.markets)[1] <- "Markets"
+# write.csv(hi.farmers.markets, "clean_farmers_markets.csv", row.names = FALSE)
+```
+
+```{r openPlot, echo = FALSE}
+open <- as.data.frame(table(hi.farmers.markets$Open))
+close <- as.data.frame(table(hi.farmers.markets$Close))
+hours <- as.data.frame(table(hi.farmers.markets$Diff))
+islands <- as.data.frame(table(hi.farmers.markets$Island))
+
+open <- open[-1, ]
+close <- close[-1, ]
+islands <- islands[-1, ]
+
+colnames(open) <- c("Time", "Count")
+colnames(close) <- c("Time", "Count")
+colnames(hours) <- c("Time.Open", "Count")
+colnames(islands) <- c("Island", "Count")
+
+open$Time <- factor(open$Time, levels = c("6:00 AM", "6:15 AM", "6:30 AM", "6:45 AM", "7:00 AM", "7:15 AM", "7:30 AM", "8:00 AM", "8:15 AM", "8:30 AM", "9:00 AM", "9:30 AM", "10:00 AM", "10:15 AM", "10:45 AM", "11:00 AM", "11:15 AM", "11:30 AM", "11:45 AM", "12:30 PM", "1:00 PM", "2:00 PM", "3:00 PM", "4:00 PM", "4:30 PM", "5:00 PM"))
+
+o <- ggplot(open, aes(Time, Count)) +
+  geom_bar(stat = "identity") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  xlab("Hours") +
+  ylab("Count") +
+  ggtitle("Opening Hours")
+o
+```
+
+We see that the most popular time for a farmer's market to open is 7:00 AM, followed by 9:00 AM, 8:00 AM, and 10:00 AM.  There are also quite a few afternoon openings at 3:00 PM and 4:00 PM.
+
+```{r closePlot, echo = FALSE}
+c <- ggplot(close, aes(Time, Count)) +
+  geom_bar(stat = "identity") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  xlab("Hours") +
+  ylab("Count") +
+  ggtitle("Closing Hours")
+c
+```
+
+We see that the most popular closing time is 1:00 PM, followed by 2:00 PM, and 11:00 AM, 12:00 PM, and 5:00 PM.
+
+```{r runningPlot, echo = FALSE}
+r <- ggplot(hours, aes(Time.Open, Count)) +
+  geom_bar(stat = "identity") +
+  xlab("Hours Open") +
+  ylab("Count") +
+  ggtitle("Hours of Operation")
+r
+```
+
+Interestingly, most farmer's markets are open for only 1 hr.  Others are open from 3 - 5 hrs.  A surprising number are only open for 45 minutes.  
+
+```{r islands, echo = FALSE}
+i <- ggplot(islands, aes(Island, Count)) +
+  geom_bar(stat = "identity") +
+  xlab("Islands") +
+  ylab("Count") +
+  ggtitle("Number of Farmer's Markets per Island")
+i
+```
+
+It isn't much of a surprise that Oahu has the lion's share of farmer's markets, but it is surprising that it holds twice as much as second place.  Still, the Big Island has a respectable representation with 25 farmer's markets.
+
+```{r days, echo = FALSE}
+hi.farmers.markets$Days.Open <- rowSums(hi.farmers.markets == "X", na.rm = TRUE)
+d <- ggplot(hi.farmers.markets, aes(Days.Open)) +
+  geom_bar() +
+  xlab("Number of Days Open") +
+  ylab("Count") +
+  ggtitle("Number of Days a Farmer's Market is Open")
+d
+```
+
+Lastly, we see that most of the farmer's markets are open only one day a week.  Though some are open 7 days a week, none are open 6 days a week.  The mean number of days is `1.702703`.
+
+## Metrocards
+
+```{r}
+metro.url <- "https://raw.githubusercontent.com/EyeDen/data607/master/Project%202/Fare_Card_History_for_Metropolitan_Transportation_Authority__MTA___Beginning_2010.csv"
+download.file(metro.url, "2010_mta.csv")
+metrocard <- read.csv("2010_mta.csv")
+```
+
+There is a lot of information in this dataset, which records Metrocard usage per week from 2010 - 2018.  For now, I am only interested in the information on Astoria's stations, as that is where I live and two stations are currently shut down for platform work, and more will be shut down later in the year.  So let's filter this big dataset down.
+
+By peeking at the `levels` of the `Station` column, almost all stations are broken down by cross streets.  I am only interested in these stations on the N/W line:
+
+![](D:/Grad School/2018 Spring/data607/Project 2/subway.png)
+
+So, for example, if I wanted the information for `30 Av`, I would need to look up `30TH AVENUE & 31ST STREET`.  But there is a quirk, as the levels show two separate entries: `30TH AVENUE & 31ST STREET` and `30TH AVENUE & 31ST STREET     `, and there are a different number of entries for both.
+
+For now, let's extract both and we can work on tidying them after.
+
+```{r}
+astoria.stations <- c("30TH AVENUE & 31ST STREET", "30TH AVENUE & 31ST STREET     ", "36TH AVENUE & 31ST STREET", "36TH AVENUE & 31ST STREET     ", "39TH AVENUE & 31ST STREET", "39TH AVENUE & 31ST STREET     ", "ASTORIA BLVD & 31ST STREET", "ASTORIA BLVD & 31ST STREET    ", "BROADWAY & 31ST STREET", "BROADWAY & 31ST STREET        ", "DITMARS BLVD & 31ST STREET    ", "DITMARS BLVD & 31ST STREET", "QUEENSBORO PLAZA", "QUEENSBORO PLAZA              ")
+
+astoria <- metrocard[metrocard$Station %in% astoria.stations, ]
+
+head(astoria, 10)
+```
+
+Looking at the data again, it seems that every station has a corresponding `Remote.Station ID`.  Rather than replacing the actual station names, we could simply remove them, and replace the `Remote.Station IDs` with their corresponding station names.  Then we can remove the `Station` column completely, along with any other columns we won't be needing.
+
+```{r}
+astoria$Remote.Station.ID <- str_replace_all(astoria$Remote.Station.ID, "R090", "39th Ave")
+astoria$Remote.Station.ID <- str_replace_all(astoria$Remote.Station.ID, "R091", "36th Ave")
+astoria$Remote.Station.ID <- str_replace_all(astoria$Remote.Station.ID, "R092", "Broadway")
+astoria$Remote.Station.ID <- str_replace_all(astoria$Remote.Station.ID, "R093", "30th Ave")
+astoria$Remote.Station.ID <- str_replace_all(astoria$Remote.Station.ID, "R094", "Astoria Blvd")
+astoria$Remote.Station.ID <- str_replace_all(astoria$Remote.Station.ID, "R095", "Ditmars Blvd")
+astoria$Remote.Station.ID <- str_replace_all(astoria$Remote.Station.ID, "R121", "Queensboro Plaza")
+astoria$Remote.Station.ID <- factor(astoria$Remote.Station.ID)
+
+astoria$From.Date <- str_extract_all(astoria$From.Date, "\\d{4}")
+
+astoria <- astoria[, c(1, 3, 5, 6, 10, 11)]
+colnames(astoria) <- c("Year", "Station", "Full.Fare", "SCD", "x7.Day.Un", "x30.Day.Un")
+astoria <- astoria[order(as.numeric(astoria$Year)), ]
+astoria$Year <- as.numeric(astoria$Year)
+
+annual.astoria <- aggregate(. ~ Year + Station, data = astoria, sum)
+head(annual.astoria, 10)
+```
+
+Now that we've got our data, let's see the affectof the `30th Avenue` and `36th Avenue` closures that happened in late 2017.
+
+### Closed Stations
+```{r 30th, echo = FALSE, message = FALSE}
+library(gridExtra)
+
+s30.a <- ggplot(subset(annual.astoria, Station == "30th Ave"), aes(Year, Full.Fare)) +
+  geom_bar(stat = "identity") +
+  xlab("Year") +
+  ylab("Full Fare") +
+  ggtitle("30th Ave Ridership")
+
+s30.b <- ggplot(subset(annual.astoria, Station == "30th Ave"), aes(Year, SCD)) +
+  geom_bar(stat = "identity") +
+  xlab("Year") +
+  ylab("Senior Citizen/Disabled Fare")
+
+s30.c <- ggplot(subset(annual.astoria, Station == "30th Ave"), aes(Year, x7.Day.Un)) +
+  geom_bar(stat = "identity") +
+  xlab("Year") +
+  ylab("7 Day Unlimited Fare")
+
+s30.d <- ggplot(subset(annual.astoria, Station == "30th Ave"), aes(Year, x30.Day.Un)) +
+  geom_bar(stat = "identity") +
+  xlab("Year") +
+  ylab("30 Day Unlimited Fare")
+
+grid.arrange(s30.a, s30.b, s30.c, s30.d, nrow = 2)
+
+s36.a <- ggplot(subset(annual.astoria, Station == "36th Ave"), aes(Year, Full.Fare)) +
+  geom_bar(stat = "identity") +
+  xlab("Year") +
+  ylab("Full Fare") +
+  ggtitle("36th Ave Ridership")
+
+s36.b <- ggplot(subset(annual.astoria, Station == "36th Ave"), aes(Year, SCD)) +
+  geom_bar(stat = "identity") +
+  xlab("Year") +
+  ylab("Senior Citizen/Disabled Fare")
+
+s36.c <- ggplot(subset(annual.astoria, Station == "36th Ave"), aes(Year, x7.Day.Un)) +
+  geom_bar(stat = "identity") +
+  xlab("Year") +
+  ylab("7 Day Unlimited Fare")
+
+s36.d <- ggplot(subset(annual.astoria, Station == "36th Ave"), aes(Year, x30.Day.Un)) +
+  geom_bar(stat = "identity") +
+  xlab("Year") +
+  ylab("30 Day Unlimited Fare")
+
+grid.arrange(s36.a, s36.b, s36.c, s36.d, nrow = 2)
+```
+
+As expected, there were some major declines in 2017 for both `30th Ave` and `36th Ave`.  Did the other stations pick up the slack?
+
+### Neighbor Stations
+```{r neighbors, echo = FALSE}
+sast.a <- ggplot(subset(annual.astoria, Station == "Astoria Blvd"), aes(Year, Full.Fare)) +
+  geom_bar(stat = "identity") +
+  xlab("Year") +
+  ylab("Full Fare") +
+  ggtitle("Astoria Blvd Ridership")
+
+sast.b <- ggplot(subset(annual.astoria, Station == "Astoria Blvd"), aes(Year, SCD)) +
+  geom_bar(stat = "identity") +
+  xlab("Year") +
+  ylab("Senior Citizen/Disabled Fare")
+
+sast.c <- ggplot(subset(annual.astoria, Station == "Astoria Blvd"), aes(Year, x7.Day.Un)) +
+  geom_bar(stat = "identity") +
+  xlab("Year") +
+  ylab("7 Day Unlimited Fare")
+
+sast.d <- ggplot(subset(annual.astoria, Station == "Astoria Blvd"), aes(Year, x30.Day.Un)) +
+  geom_bar(stat = "identity") +
+  xlab("Year") +
+  ylab("30 Day Unlimited Fare")
+
+grid.arrange(sast.a, sast.b, sast.c, sast.d, nrow = 2)
+
+sb.a <- ggplot(subset(annual.astoria, Station == "Broadway"), aes(Year, Full.Fare)) +
+  geom_bar(stat = "identity") +
+  xlab("Year") +
+  ylab("Full Fare") +
+  ggtitle("Broadway Ridership")
+
+sb.b <- ggplot(subset(annual.astoria, Station == "Broadway"), aes(Year, SCD)) +
+  geom_bar(stat = "identity") +
+  xlab("Year") +
+  ylab("Senior Citizen/Disabled Fare")
+
+sb.c <- ggplot(subset(annual.astoria, Station == "Broadway"), aes(Year, x7.Day.Un)) +
+  geom_bar(stat = "identity") +
+  xlab("Year") +
+  ylab("7 Day Unlimited Fare")
+
+sb.d <- ggplot(subset(annual.astoria, Station == "Broadway"), aes(Year, x30.Day.Un)) +
+  geom_bar(stat = "identity") +
+  xlab("Year") +
+  ylab("30 Day Unlimited Fare")
+
+grid.arrange(sb.a, sb.b, sb.c, sb.d, nrow = 2)
+
+s39.a <- ggplot(subset(annual.astoria, Station == "39th Ave"), aes(Year, Full.Fare)) +
+  geom_bar(stat = "identity") +
+  xlab("Year") +
+  ylab("Full Fare") +
+  ggtitle("39th Ave Ridership")
+
+s39.b <- ggplot(subset(annual.astoria, Station == "39th Ave"), aes(Year, SCD)) +
+  geom_bar(stat = "identity") +
+  xlab("Year") +
+  ylab("Senior Citizen/Disabled Fare")
+
+s39.c <- ggplot(subset(annual.astoria, Station == "39th Ave"), aes(Year, x7.Day.Un)) +
+  geom_bar(stat = "identity") +
+  xlab("Year") +
+  ylab("7 Day Unlimited Fare")
+
+s39.d <- ggplot(subset(annual.astoria, Station == "39th Ave"), aes(Year, x30.Day.Un)) +
+  geom_bar(stat = "identity") +
+  xlab("Year") +
+  ylab("30 Day Unlimited Fare")
+
+grid.arrange(s39.a, s39.b, s39.c, s39.d, nrow = 2)
+```
+
+As we expect, ridership remains up for 2017 for each neighboring station, however there is not a marked increase that we would expect.  In most instances they remain the same, or have a slight increase/decrease.  Perhaps we are being too granular?  What if we took the total ridership for `Full.Fare`, `SCD`, `x7.Day.Un`, and `x30.Day.Un`?
+
+### Total Ridership
+```{r total, echo = FALSE}
+annual.astoria$Total.Fare <- rowSums(annual.astoria[3:6])
+closed.1 <- ggplot(subset(annual.astoria, Station == "30th Ave"), aes(Year, Total.Fare)) +
+  geom_bar(stat = "identity") +
+  xlab("Year") +
+  ylab("Total Fare") +
+  ggtitle("30th Ave")
+
+closed.2 <- ggplot(subset(annual.astoria, Station == "36th Ave"), aes(Year, Total.Fare)) +
+  geom_bar(stat = "identity") +
+  xlab("Year") +
+  ylab("Total Fare") +
+  ggtitle("36th Ave")
+
+open.1 <- ggplot(subset(annual.astoria, Station == "Astoria Blvd"), aes(Year, Total.Fare)) +
+  geom_bar(stat = "identity") +
+  xlab("Year") +
+  ylab("Total Fare") +
+  ggtitle("Astoria Blvd")
+
+open.2 <- ggplot(subset(annual.astoria, Station == "Broadway"), aes(Year, Total.Fare)) +
+  geom_bar(stat = "identity") +
+  xlab("Year") +
+  ylab("Total Fare") +
+  ggtitle("Broadway")
+
+open.3 <- ggplot(subset(annual.astoria, Station == "39th Ave"), aes(Year, Total.Fare)) +
+  geom_bar(stat = "identity") +
+  xlab("Year") +
+  ylab("Total Fare") +
+  ggtitle("39th Ave")
+
+grid.arrange(closed.1, closed.2, nrow = 1)
+grid.arrange(open.1, open.2, open.3, nrow = 1)
+```
+
+Indeed, ridership has mostly held steady through late 2017 for the open stations.  Admittedly, this would need to be revisited once 2018 is through, and we can see the full effect the (planned) seven month shutdown had on Astoria.  However, I would have expected the steep drop seen in the closed stations to appear on the open ones!  The drop is especially dramatic when one considers those stations were closed for only one full month in 2017.
+
+```{r, echo = FALSE} 
+r.30.2017 <- annual.astoria[annual.astoria$Year == "2017" & annual.astoria$Station == "30th Ave", 7]
+r.30.2016 <- annual.astoria[annual.astoria$Year == "2016" & annual.astoria$Station == "30th Ave", 7]
+r.36.2017 <- annual.astoria[annual.astoria$Year == "2017" & annual.astoria$Station == "36th Ave", 7]
+r.36.2016 <- annual.astoria[annual.astoria$Year == "2016" & annual.astoria$Station == "36th Ave", 7]
+
+r.ast.2016 <- annual.astoria[annual.astoria$Year == "2016" & annual.astoria$Station == "Astoria Blvd", 7]
+r.ast.2017 <- annual.astoria[annual.astoria$Year == "2017" & annual.astoria$Station == "Astoria Blvd", 7]
+r.broad.2016 <- annual.astoria[annual.astoria$Year == "2016" & annual.astoria$Station == "Broadway", 7]
+r.broad.2017 <- annual.astoria[annual.astoria$Year == "2017" & annual.astoria$Station == "Broadway", 7]
+r.39.2016 <- annual.astoria[annual.astoria$Year == "2016" & annual.astoria$Station == "39th Ave", 7]
+r.39.2017 <- annual.astoria[annual.astoria$Year == "2017" & annual.astoria$Station == "39th Ave", 7]
+
+r.queen.2016 <- annual.astoria[annual.astoria$Year == "2016" & annual.astoria$Station == "Queensboro Plaza", 7]
+r.queen.2017 <- annual.astoria[annual.astoria$Year == "2017" & annual.astoria$Station == "Queensboro Plaza", 7]
+
+diff.30 <- -1 * (1 - (r.30.2017/r.30.2016))
+diff.36 <- -1 * (1 - (r.36.2017/r.36.2016))
+diff.ast <- -1 * (1 - (r.ast.2017/r.ast.2016))
+diff.broad <- -1 * (1 - (r.broad.2017/r.broad.2016))
+diff.39 <- -1 * (1 - (r.39.2017/r.39.2016))
+diff.q <- -1 * (1 - (r.queen.2017/r.queen.2016))
+
+ridership.diff <- data.frame(Station = c("Astoria Blvd", "30th Ave", "Broadway", "36th Ave", "39th Ave", "Queensboro Plaza"), Percent.Change = c(diff.ast, diff.30, diff.broad, diff.36, diff.39, diff.q))
+```
+
+```{r}
+ridership.diff
+```
+
+We can easily calculate the drop between years.  For both `30th Ave` and `36th Ave` ridership levels dropped by 30%, but we don't see the same increase in numbers for the neighboring stations.  As the graphs illustrate, most of the stations also see minor decreases.  `Astoria Blvd` sees a negligible one percent increase, and Queensboro Plaza, one of the main choke points into Manhattan, only sees an 8% increase.
+
+CitiBike also came to Astoria around this time.  Perhaps people affected by the subway closures opted to take other methods to cope, such as CitiBike, or the bus, or taxis/ride shares.
+
+## Movies
+
+```{r}
+movie.url <- "https://raw.githubusercontent.com/EyeDen/data607/master/Project%202/movie_metadata.csv"
+download.file(movie.url, "imdb_data.csv")
+imdb <- read.csv("imdb_data.csv", na.strings = c("", " ", "NA"))
+```
+
+There are a lot of columns here.  For now, let's concern ourselves with the power of social media.  Is there a positive correlation between Facebook likes for the movie/cast and IMDB score?  Does this also translate to a better gross?
+
+We'll start by removing all the columns we don't need.  We will also rearrange the columns into something more readable.  Lastly, we'll only concern ourselves with films categorized as `USA`.
+
+```{r}
+imdb <- imdb[, c(12, 21, 24, 2, 11, 7, 15, 9, 23, 13, 14, 28, 19, 26)]
+imdb <- subset(imdb, country == "USA")
+imdb <- imdb[, -2]
+```
+
+The `movie_title` column has a strange character at the end of every movie, so let's tidy that up next.  We will also not concern ourselves with any entries that have `NA` values, nor any movies with 0 Facebook likes.
+
+```{r}
+imdb$movie_title <- str_replace_all(imdb$movie_title, "Â\\s*", "")
+imdb <- imdb[complete.cases(imdb),]
+imdb <- imdb[imdb$movie_facebook_likes != 0,]
+
+imdb <- imdb[!duplicated(imdb$movie_title), ]
+```
+
+```{r, echo = FALSE}
+head(imdb[order(-imdb$gross), c(1, 2, 7)], 10)
+```
+
+_Avatar_ is king of the gross according to IMDB, followed by _Titanic_, _Jurassic World_, _The Avengers_, and _The Dark Knight_.  Only 4 of the top 10 movies come from this decade.  4 come from the previous millennia, and _E.T. the Extra-Terrestrial_ is the oldest of them all.
+
+```{r, echo = FALSE}
+head(imdb[order(-imdb$movie_facebook_likes), c(1, 2, 11)], 10)
+```
+
+In contrast, the movies with the most Facebook likes all come from this decade.  _Inception_ is the oldest of the 10, but falls in the middle of the group.
+
+```{r, echo = FALSE}
+head(imdb[order(-imdb$imdb_score), c(1, 2, 13)], 10)
+```
+
+Lastly, the movies that are the highest rated on IMDB are relatively older and more diverse.  We also see a much higher showing of movies in the 1970s, with _The Godfather_ and _The Godfather: Part II_ showing up.  Half the movies in the top ten come from the 1990s, perhaps showing some sort of bias in age of users?
+
+Let's see if there are any overlaps.
+
+```{r, echo = FALSE, message = FALSE}
+gross <- head(imdb[order(-imdb$gross),], 10)
+likes <- head(imdb[order(-imdb$movie_facebook_likes),], 10)
+rating <- head(imdb[order(-imdb$imdb_score),], 10)
+
+common <- inner_join(gross, likes)
+common <- inner_join(common, rating)
+```
+
+```{r}
+common
+```
+
+Nope.  There are no common movies in the top 10 of each list.  So let's see what other trends we can see.
+
+```{r, echo = FALSE, message = FALSE}
+common <- full_join(gross, likes)
+common <- full_join(common, rating)
+common <- common[!duplicated(common$movie_title), ]
+
+common.norm <- common
+common.norm$gross <- log10(common.norm$gross)
+common.norm$movie_facebook_likes <- log10(common.norm$movie_facebook_likes)
+common.norm$cast_total_facebook_likes <- log10(common.norm$cast_total_facebook_likes)
+
+melted.likes <- melt(common.norm[, c(1,10,11)])
+
+ml <- ggplot(melted.likes, aes(movie_title, value, col = variable, group = variable)) +
+  geom_point() +
+  geom_line() +
+  geom_smooth(method = "lm", se = FALSE) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  xlab("Movies") +
+  ylab("Likes") +
+  ggtitle("Cast Likes vs Movie Likes")
+
+ml
+```
+
+There doesn't seem to be much of a trend comparing `movie likes` with `cast total likes`.  On the average, the movie will garner more likes than the cast total.
+
+```{r, echo = FALSE, message = FALSE}
+
+m.gr.likes <- melt(common.norm[, c(1, 7, 11)])
+
+gross.likes <- ggplot(m.gr.likes, aes(movie_title, value, col = variable, group = variable)) +
+  geom_point() +
+  geom_line() +
+  geom_smooth(method = "lm", se = FALSE) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  xlab("Movies") +
+  ylab("Value") +
+  ggtitle("Movie Likes vs Gross")
+
+gross.likes
+```
+
+On the other hand, there seems to be a rough suggestion of a movie's gross given its Facebook likes.
+
+```{r, echo = FALSE, message = FALSE}
+m.gr.rating <- melt(common.norm[, c(1, 7, 13)])
+
+gross.rating <- ggplot(m.gr.rating, aes(movie_title, value, col = variable, group = variable)) +
+  geom_point() +
+  geom_line() +
+  geom_smooth(method = "lm", se = FALSE) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  xlab("Movies") +
+  ylab("Value") +
+  ggtitle("Movie Gross vs IMDB Rating")
+
+gross.rating
+```
+
+Comparing the `gross` with `IMDB rating` is just a mess.  There seems to be no suggestion between the two.
+
+Let's see if we can look at Facebook likes vs gross one more time.  First, let's limit ourselves to 2012 - 2017.  2012 is the year in which Facebook went public, so we will assume that is when Facebook hit its peak popularity.
+
+```{r, echo = FALSE, message = FALSE}
+final <- select(imdb, c("movie_title", "title_year", "gross", "movie_facebook_likes"))
+final <- subset(final, title_year > 2011)
+final$gross <- log10(final$gross)
+final$movie_facebook_likes <- log10(final$movie_facebook_likes)
+final <- final[order(-final$title_year),]
+final.melt <- melt(final[, c(1, 3, 4)])
+
+fin <- ggplot(final.melt, aes(movie_title, value, col = variable, group = variable)) +
+  geom_point() +
+  geom_line() +
+  geom_smooth(method = "lm", se = FALSE) +
+  theme(axis.title.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank()) +
+  xlab("Movies") +
+  ylab("Value") +
+  ggtitle("Gross vs Facebook likes 2012 - 2017")
+
+fin
+```
+
+Without running this through a machine learning algorithm it's hard to know for certain, but maybe?  It makes a kind of sense that Facebook likes will mirror gross, as both would be an expression of how an audience would react to a movie, and it's a more raw form than having to rate a movie specifically.
