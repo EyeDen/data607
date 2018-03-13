@@ -1,0 +1,39 @@
+---
+title: "Assignment 6"
+author: "Iden Watanabe"
+date: "March 13, 2018"
+output: html_document
+---
+
+The purpose of this exercise is to load information from three different file types: HTML, XML, and JSON.  I picked mythology books for this assignment and handmade the HTML table, XML, and JSON files, which are uploaded to my GitHub.
+
+```{r libraries, message = FALSE}
+library(XML)
+library(knitr)
+library(jsonlite)
+```
+
+```{r html}
+
+books.html <- as.data.frame(readHTMLTable("books.html"))
+kable(books.html)
+```
+
+Aside from a minor issue with the column names, this is okay.  If we were cleaning this up, we'd have to split apart the authors for _The Odyssey_ and _Fairy Tales_.
+
+`xmlToDataFrame`, though it exists as part of the `XML` library, is a bit too simplistic, as it can't handle the multiple author tags for two of the books.  We'll have to try something else.  A [StackOverflow]["https://stackoverflow.com/questions/2067098/how-to-transform-xml-data-into-a-data-frame"] question gave me a solution, requiring the `plyr` library.
+
+```{r xml}
+books.xml <- ldply(xmlToList("books.xml"), data.frame)
+```
+
+This natively manages to split apart the authors, which `readHTMLTable` couldn't manage for HTML.  We can clean it up a bit, and remove columns we won't be needing.
+
+```{r xml}
+books.xml <- books.xml[, c(2, 3, 8, 4, 5, 6)]
+kable(books.xml)
+```
+
+```{r json}
+
+```

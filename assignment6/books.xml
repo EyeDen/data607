@@ -1,0 +1,25 @@
+<mythology_books>
+	<book id = "1">
+		<title>Norse Mythology</title>
+		<author>Neil Gaiman</author>
+		<publisher>W.W. Norton and Company </publisher>
+		<pages>304</pages>
+		<date>2/7/17</date>
+	</book>
+	<book id = "2">
+		<title>The Odyssey</title>
+		<author>Homer</author> 
+		<author>Emily Wilson</author>
+		<publisher>W.W. Norton and Company </publisher>
+		<pages>592</pages>
+		<date>11/7/17</date>
+	</book>
+	<book id = "3">
+		<title>Fairy Tales from the Brothers Grimm: A New English Version</title>
+		<author>The Brothers Grimm</author>
+		<author>Philip Pullman</author>
+		<publisher>Viking</publisher>
+		<pages>432</pages>
+		<date>11/8/12</date>
+	</book>
+</mythology_books>

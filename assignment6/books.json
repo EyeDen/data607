@@ -1,0 +1,23 @@
+{"books": [
+	{
+	"title" : "Norse Mythology",
+	"authors" : ["Neil Gaiman"],
+	"publisher" : "W.W. Norton and Company",
+	"pages": 304,
+	"date": "2/7/17"
+	},
+	{
+	"title" : "The Odyssey",
+	"authors" : ["Homer", "Emily Wilson"],
+	"publisher" : "W.W. Norton and Company",
+	"pages" : 592,
+	"date" : "11/7/17"
+	},
+	{
+	"title" : "Fairy Tales from the Brothers Grimm: A New English Version",
+	"authors" : ["The Brothers Grimm", "Philip Pullman"],
+	"publisher" : "Viking",
+	"pages" : 432,
+	"date" : "11/8/12"
+	}]
+}
