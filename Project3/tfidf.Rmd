@@ -15,16 +15,22 @@ library(dplyr)
 library(ggplot2)
 ```
 
-```{r attempt-1, echo = FALSE, warning = FALSE}
+```{r tfidf-setup, echo = FALSE}
 # Delete when joining with main Rmd
 df_final <- read.csv("df_final.csv", stringsAsFactors = FALSE)
 
 # Make all job titles lower case for later
-df_final$job_title <- tolower(df_final$job_title)
+# df_final$job_title <- tolower(df_final$job_title)
 
-corpus.all <- VCorpus(VectorSource(df_final$summary))
+# Control list to be used for all corpuses
 control_list <- list(removePunctuation = TRUE, stopwords = TRUE, tolower = TRUE,
                      weighting = weightTfIdf)
+```
+# TF-IDF Analysis
+
+## TF-IDF on All Job Postings
+```{r attempt-1, echo = FALSE, warning = FALSE}
+corpus.all <- VCorpus(VectorSource(df_final$summary))
 
 tdm.all <- TermDocumentMatrix(corpus.all, control = control_list)
 
@@ -44,12 +50,13 @@ ggplot(tail(df_all, 25), aes(reorder(words, count), count)) +
 
 ```
 
-Sparsity controls the rarity of the word frequency.  If we run `removeSparseTerms(tdm, sparse = 0.99)`, it will remove only the rarest words, that is the words that appear in only 1% of the corpus.  On the other hand, `removeSparseTerms(tdm, sparse = 0.01)` then only words that appear in nearly every document of the corpus will be kept.
+First, a note on sparsity: Sparsity roughly controls the rarity of the word frequency.  If we run `removeSparseTerms(tdm, sparse = 0.99)`, it will remove only the rarest words, that is the words that appear in only 1% of the corpus.  On the other hand, `removeSparseTerms(tdm, sparse = 0.01)` then only words that appear in nearly every document of the corpus will be kept.
 
-Source is here: https://stats.stackexchange.com/questions/160539/is-this-interpretation-of-sparsity-accurate
+For most analysis, I found that a sparsity of 80% was most beneficial.  Sparsity > 80% often included words that were more important to job postings as a whole, and not to the specifics we wanted for the purpose of our question.
 
-To graph it, I summed up the rows to eliminate all the duplicate words, essentially removing the document identifier.
+When each job postings are treated as individual documents, skills like "machine learning", "analytics", "statistics/statistical", and "models/modeling" are very important for data scientists to have.
 
+## TF-IDF on Job Postings by Cities
 ```{r attempt-2, fig.width = 10, fig.height = 11, echo = FALSE, warning = FALSE}
 # Trying to divide the corpus by cities
 nyc <- paste(df_final[df_final$city == "New York", 6], collapse = " ")
@@ -95,12 +102,11 @@ df_city %>%
 # write.csv(df_city, "city_tfidf.csv", row.names = FALSE)
 ```
 
-Attempt 2 collects each job post by city, then makes a corpus of each city's job postings.
-I can't seem to manipulate the sparsity to showcase any relevant skills.  I suppose the more interesting thing is that, when grouped by city, the companies become the most important term.
+In this attempt, job postings were grouped by the cities they were listed in.  When broken down this way, the companies themselves became the most important words rather than skills.
 
 ```{r attempt-3, echo = FALSE, warning = FALSE}
 # Data Scientist - 739 instances
-ds <- df_final[grep("data scientist", df_final$job_title), 6]
+ds <- df_final[grep("data scientist", tolower(df_final$job_title)), 6]
 ds.corpus <- VCorpus(VectorSource(ds))
 ds.tdm <- TermDocumentMatrix(ds.corpus, control = control_list)
 
@@ -119,8 +125,8 @@ ggplot(tail(df_ds, 25), aes(reorder(words, count), count)) +
 # Intern - 61 instance
 # Senior vs Intern
 # Not very illuminating
-senior <- paste(df_final[grep("senior", df_final$job_title), 6], collapse = " ")
-intern <- paste(df_final[grep("intern", df_final$job_title), 6], collapse = " ")
+senior <- paste(df_final[grep("senior", tolower(df_final$job_title)), 6], collapse = " ")
+intern <- paste(df_final[grep("intern", tolower(df_final$job_title)), 6], collapse = " ")
 jrsr.corpus <- VCorpus(VectorSource(c(senior, intern)))
 jrsr.tdm <- TermDocumentMatrix(jrsr.corpus, control = control_list)
 df_jrsr <- tidy(jrsr.tdm)
@@ -142,7 +148,7 @@ df_jrsr %>%
   coord_flip()
 
 # Machine Learning - 124 instances
-ml <- df_final[grep("machine learning", df_final$job_title), 6]
+ml <- df_final[grep("machine learning", tolower(df_final$job_title)), 6]
 ml.corpus <- VCorpus(VectorSource(ml))
 ml.tdm <- TermDocumentMatrix(ml.corpus, control = control_list)
 
