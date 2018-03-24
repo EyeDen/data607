@@ -1,0 +1,179 @@
+---
+title: "Project_03_Cleaning"
+author: "Kavya Beheraj"
+date: "March 20, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(dplyr)
+library(stringr)
+library(tidyr)
+```
+
+
+****
+
+<br>
+
+## **A.** Read in the dataframe
+
+1. Read in raw dataframe, set separator as pipe
+```{r}
+url <- "https://raw.githubusercontent.com/plb2018/DATA607/master/Project%203/indeed_jobs_large.csv"
+
+df <- read.csv(url, sep="|", stringsAsFactors = F)
+
+```
+
+<br>
+
+2. Remove "location" and "salary" columns, to reduce redundancy.
+```{r}
+df <- df[, -c(5,7)]
+
+View(df)
+```
+
+<br>
+
+## **B.** Test cleaning procedure on sample dataset
+
+#### 1. Take 100-row sample of full dataset
+```{r}
+sample <- df[sample(1:nrow(df), 100, replace=F),]
+
+View(sample)
+```
+
+<br>
+
+#### 2. Remove brackets surrounding summaries
+```{r}
+
+sample1 <- sample %>% separate(summary_full, c("bracket", "new_summary"), sep="^[\\[]", remove=T, convert=F) %>%
+                      separate(new_summary, c("summary_full", "bracket"), sep="[\\]]$", remove=T, convert=F)
+
+sample1 <- sample1[, -c(5, 8)]
+
+View(sample1)
+```
+
+<br>
+
+#### 3. Rename column headers
+```{r}
+
+names(sample1) <- c("list_ID", "city", "job_title", "company_name", "link", "summary")
+
+View(sample1)
+
+```
+
+<br>
+
+#### 4. Remove state and plus signs from City column
+```{r}
+# Separate City column into City and State by pattern of two uppercase letters after a plus sign (i.e., "+NY")
+sample2 <- sample1 %>% separate(city, c("city", "state"), sep="[\\+][[:upper:]][[:upper:]]$", convert=T)
+
+# Remove empty State column
+sample2 <- sample2[, -c(3)]
+
+# Replace plus signs with spaces
+sample2$city <- str_replace_all(sample2$city, "[\\+]", " ")
+
+View(sample2)
+
+```
+
+<br>
+
+#### 5. Remove rows where Summary is blank
+```{r}
+
+sample3 <- filter(sample2, sample2$summary!="")
+
+View(sample3)
+
+```
+
+<br>
+
+## **C.** Apply procedure to full dataset
+
+#### 1. Remove brackets surrounding summaries
+```{r}
+
+df1 <- df %>% separate(summary_full, c("bracket", "new_summary"), sep="^[\\[]", remove=T, convert=F) %>%
+              separate(new_summary, c("summary_full", "bracket"), sep="[\\]]$", remove=T, convert=F)
+
+df1 <- df1[, -c(5, 8)]
+
+View(df1)
+```
+
+<br>
+
+#### 2. Rename column headers
+```{r}
+
+names(df1) <- c("list_ID", "city", "job_title", "company_name", "link", "summary")
+
+View(df1)
+
+```
+
+<br>
+
+#### 3. Remove state and plus signs from city column
+```{r}
+# Separate city column into city and state by pattern of two uppercase letters after a plus sign (i.e., "+NY")
+df2 <- df1 %>% separate(city, c("city", "state"), sep="[\\+][[:upper:]][[:upper:]]$", convert=T)
+
+# Remove empty State column
+df2 <- df2[, -c(3)]
+
+# Replace plus signs with spaces
+df2$city <- str_replace_all(df2$city, "[\\+]", " ")
+
+View(df2)
+
+```
+
+<br>
+
+#### 4. Remove rows where Summary is blank
+```{r}
+
+df_final <- filter(df2, df2$summary!="")
+
+# View(df_final)
+write.csv(df_final, "indeed_final.csv", row.names = FALSE)
+
+```
+
+We are left with a dataset that has 1,303 job listings.
+
+<br>
+
+
+## **D.** Test string extraction on sample dataset's summary column
+
+```{r}
+#Extract strings based on skill list
+
+#tool.skills <- ".py."
+
+#sapply(tool.skills, str_count, sample1$summary)
+
+# "SQL", "Hadoop", "TensorFlow")
+
+
+```
+
+

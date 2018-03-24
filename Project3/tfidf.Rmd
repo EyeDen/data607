@@ -1,0 +1,175 @@
+---
+title: "Project3"
+author: "Iden Watanabe"
+date: "March 18, 2018"
+output: html_document
+---
+
+```{r include=FALSE}
+library(tm)
+library(tidytext)
+library(xtable)
+library(readr)
+library(plyr)
+library(dplyr)
+library(ggplot2)
+```
+
+```{r attempt-1, echo = FALSE, warning = FALSE}
+# Delete when joining with main Rmd
+df_final <- read.csv("df_final.csv", stringsAsFactors = FALSE)
+
+# Make all job titles lower case for later
+df_final$job_title <- tolower(df_final$job_title)
+
+corpus.all <- VCorpus(VectorSource(df_final$summary))
+control_list <- list(removePunctuation = TRUE, stopwords = TRUE, tolower = TRUE,
+                     weighting = weightTfIdf)
+
+tdm.all <- TermDocumentMatrix(corpus.all, control = control_list)
+
+# Remove outliers consisting of very rare terms
+tdm.80 <- removeSparseTerms(tdm.all, sparse = 0.80)
+
+# Sum rows for total & make dataframe
+df_all <- tidy(sort(rowSums(as.matrix(tdm.80))))
+colnames(df_all) <- c("words", "count")
+
+# Graph
+ggplot(tail(df_all, 25), aes(reorder(words, count), count)) +
+  geom_bar(stat = "identity", fill = "blue") +
+  labs(title = "TF-IDF of Indeed Job Postings",
+       x = "Words", y = "Frequency") +
+  coord_flip()
+
+```
+
+Sparsity controls the rarity of the word frequency.  If we run `removeSparseTerms(tdm, sparse = 0.99)`, it will remove only the rarest words, that is the words that appear in only 1% of the corpus.  On the other hand, `removeSparseTerms(tdm, sparse = 0.01)` then only words that appear in nearly every document of the corpus will be kept.
+
+Source is here: https://stats.stackexchange.com/questions/160539/is-this-interpretation-of-sparsity-accurate
+
+To graph it, I summed up the rows to eliminate all the duplicate words, essentially removing the document identifier.
+
+```{r attempt-2, fig.width = 10, fig.height = 11, echo = FALSE, warning = FALSE}
+# Trying to divide the corpus by cities
+nyc <- paste(df_final[df_final$city == "New York", 6], collapse = " ")
+sea <- paste(df_final[df_final$city == "Seattle", 6], collapse = " ")
+sf <- paste(df_final[df_final$city == "San Francisco", 6], collapse = " ")
+dc <- paste(df_final[df_final$city == "Washington", 6], collapse = " ")
+atl <- paste(df_final[df_final$city == "Atlanta", 6], collapse = " ")
+bos <- paste(df_final[df_final$city == "Boston", 6], collapse = " ")
+aus <- paste(df_final[df_final$city == "Austin", 6], collapse = " ")
+cin <- paste(df_final[df_final$city == "Cincinnati", 6], collapse = " ")
+pitt <- paste(df_final[df_final$city == "Pittsburgh", 6], collapse = " ")
+
+cities <- c(nyc, sea, sf, dc, atl, bos, aus, cin, pitt)
+
+corpus.city <- VCorpus(VectorSource(cities))
+
+tdm.city <- TermDocumentMatrix(corpus.city, control = control_list)
+
+# Make city dataframe
+df_city <- tidy(tdm.city)
+df_city$document <- mapvalues(df_city$document,
+                              from = 1:9,
+                              to = c("NYC", "SEA", "SF",
+                                     "DC", "ATL", "BOS",
+                                     "AUS", "CIN", "PITT"))
+
+df_city %>%
+  arrange(desc(count)) %>%
+  mutate(word = factor(term, levels = rev(unique(term))),
+           city = factor(document, levels = c("NYC", "SEA", "SF",
+                                              "DC", "ATL", "BOS",
+                                              "AUS", "CIN", "PITT"))) %>%
+  group_by(document) %>%
+  top_n(6, wt = count) %>%
+  ungroup() %>%
+  ggplot(aes(word, count, fill = document)) +
+  geom_bar(stat = "identity", alpha = .8, show.legend = FALSE) +
+  labs(title = "Highest TF-IDF Words in Job Listings by City",
+       x = "Words", y = "TF-IDF") +
+  facet_wrap(~city, ncol = 2, scales = "free") +
+  coord_flip()
+
+# write.csv(df_city, "city_tfidf.csv", row.names = FALSE)
+```
+
+Attempt 2 collects each job post by city, then makes a corpus of each city's job postings.
+I can't seem to manipulate the sparsity to showcase any relevant skills.  I suppose the more interesting thing is that, when grouped by city, the companies become the most important term.
+
+```{r attempt-3, echo = FALSE, warning = FALSE}
+# Data Scientist - 739 instances
+ds <- df_final[grep("data scientist", df_final$job_title), 6]
+ds.corpus <- VCorpus(VectorSource(ds))
+ds.tdm <- TermDocumentMatrix(ds.corpus, control = control_list)
+
+ds.80 <- removeSparseTerms(ds.tdm, sparse = 0.80)
+df_ds <- tidy(sort(rowSums(as.matrix(ds.80))))
+colnames(df_ds) <- c("words", "count")
+
+ggplot(tail(df_ds, 25), aes(reorder(words, count), count)) +
+  geom_bar(stat = "identity", fill = "red") +
+  labs(title = "TF-IDF of Data Scientist Job Titles",
+       x = "Words", y = "Frequency") +
+  coord_flip()
+
+
+# Senior / Sr. - 84 instances
+# Intern - 61 instance
+# Senior vs Intern
+# Not very illuminating
+senior <- paste(df_final[grep("senior", df_final$job_title), 6], collapse = " ")
+intern <- paste(df_final[grep("intern", df_final$job_title), 6], collapse = " ")
+jrsr.corpus <- VCorpus(VectorSource(c(senior, intern)))
+jrsr.tdm <- TermDocumentMatrix(jrsr.corpus, control = control_list)
+df_jrsr <- tidy(jrsr.tdm)
+df_jrsr$document <- mapvalues(df_jrsr$document, from = 1:2,
+                              to = c("senior", "intern"))
+
+df_jrsr %>%
+  arrange(desc(count)) %>%
+  mutate(word = factor(term, levels = rev(unique(term))),
+           type = factor(document, levels = c("senior", "intern"))) %>%
+  group_by(document) %>%
+  top_n(25, wt = count) %>%
+  ungroup() %>%
+  ggplot(aes(word, count, fill = document)) +
+  geom_bar(stat = "identity", alpha = .8, show.legend = FALSE) +
+  labs(title = "TF-IDF of Senior vs Junior Jobs",
+       x = "Words", y = "TF-IDF") +
+  facet_wrap(~type, ncol = 2, scales = "free") +
+  coord_flip()
+
+# Machine Learning - 124 instances
+ml <- df_final[grep("machine learning", df_final$job_title), 6]
+ml.corpus <- VCorpus(VectorSource(ml))
+ml.tdm <- TermDocumentMatrix(ml.corpus, control = control_list)
+
+ml.70 <- removeSparseTerms(ml.tdm, sparse = 0.70)
+df_ml <- tidy(sort(rowSums(as.matrix(ml.70))))
+colnames(df_ml) <- c("words", "count")
+
+ggplot(tail(df_ml, 25), aes(reorder(words, count), count)) +
+  geom_bar(stat = "identity", fill = "green") +
+  labs(title = "TF-IDF for Machine Learning Jobs",
+       x = "Words", y = "Count") +
+  coord_flip()
+
+# Research - 119 instances
+research <- df_final[grep("research", df_final$job_title), 6]
+r.corpus <- VCorpus(VectorSource(research))
+r.tdm <- TermDocumentMatrix(r.corpus, control = control_list)
+
+r.80 <- removeSparseTerms(r.tdm, sparse = 0.80)
+df_r <- tidy(sort(rowSums(as.matrix(r.80))))
+colnames(df_r) <- c("words", "count")
+
+ggplot(tail(df_r, 25), aes(reorder(words, count), count)) +
+  geom_bar(stat = "identity", fill = "orange") +
+  labs(title = "TF-IDF for Research Job Titles",
+       x = "Words", y = "Count") +
+  coord_flip()
+```
+
+Attempt-3 breaks down the documents by job titles.
