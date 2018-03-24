@@ -104,6 +104,7 @@ df_city %>%
 
 In this attempt, job postings were grouped by the cities they were listed in.  When broken down this way, the companies themselves became the most important words rather than skills.
 
+## TF-IDF Based on Job Titles
 ```{r attempt-3, echo = FALSE, warning = FALSE}
 # Data Scientist - 739 instances
 ds <- df_final[grep("data scientist", tolower(df_final$job_title)), 6]
@@ -178,4 +179,4 @@ ggplot(tail(df_r, 25), aes(reorder(words, count), count)) +
   coord_flip()
 ```
 
-Attempt-3 breaks down the documents by job titles.
+Though our primary search term was "Data Scientist", Indeed also returned other job titles.  These were some of the most common instances.  Unsurprisingly, "Data Scientist" itself matches with what we see in the analysis of all job postings.  We thought there might be an interesting shift between "senior" level jobs and internships, with perhaps a strong prevelance of "soft skills" for the higher level jobs, but did not see much evidence of that in the data.
