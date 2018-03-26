@@ -1,0 +1,79 @@
+---
+title: "Assignment 6"
+author: "Iden Watanabe"
+date: "March 26, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(jsonlite)
+library(knitr)
+```
+
+First we have to construct the url for the New York Times api, along with our api key.  The NYT uses REST for their api, so we'll need to append our key after a `?` in the url, along with any queries.  For now, let's just look up the history of bestsellers.
+
+```{r}
+books.url <- "https://api.nytimes.com/svc/books/v3/lists/best-sellers/history.json"
+api.key <- "&api-key=3f19ff573ab540558e270090b7e7f4ae"
+rest <- "?"
+
+query <- paste(books.url, rest, api.key, sep = "")
+raw.resp <- fromJSON(query)
+raw.resp$num_results
+```
+
+31,175 is a lot to work with.  It would be nice to restrict things by particular list names, like say "Fiction Best Sellers", but the books_api seems limited in its search to only "age-group", "author", "contributor", "isbn", "price", "publisher", and "title".  "age-group" also seems to be relatively new.
+
+For now, let's examine the bestsellers of George R.R. Martin.
+
+```{r}
+author <- "author=george+r+r+martin"
+query <- paste(books.url, rest, author, api.key, sep = "")
+raw.resp <- fromJSON(query)
+raw.resp$num_results
+```
+
+12 is much more manageable.  With our raw response from our query, let's pare down the information.  As we're only interested in best sellers, let's extract only the authors, titles, prices, publishers.
+
+```{r}
+best.sellers <- raw.resp$results[, c(1, 4, 6, 8)]
+head(best.sellers, 5)
+```
+
+Almost there.  We need some information from their place on the list, and what list that might be.  This becomes very complicated, as the rank_history is a nested dataframe.  If a book reached a list, it will have a dataframe of 1 row and 11 columns.  If it reached n lists, then that book will have a nested dataframe of n rows and 11 columns.  We know this because, if we look at the developer page, there are 11 variables under "ranks_history".
+
+```{r}
+rank.names <- c("isbn10", "isbn13", "rank", "list", "display", "pub.date",
+               "bestseller.date", "weeks", "last.week", "asterisk", "dagger", "title")
+rank.df <- data.frame(matrix(ncol = 12, nrow = 0))
+raw.rank <- raw.resp$results$ranks_history
+```
+
+We'll need to make a separate dataframe for just the rank information.  We do this with 12 columns instead of 11, because we want to know the title as well.  The author is not important in this particular scenario as we know it's George R. R. Martin, but author may be added as well to make the columns 13.  We also need the raw results of rank_history.
+
+```{r}
+for(i in 1:length(raw.rank)){
+  rank.row <- as.data.frame(raw.rank[i])
+  
+  # If rank.row == 0, then there's no information
+  # We add an empty row to our new dataframe
+  if(length(rank.row) == 0){
+    empty.row <- data.frame(matrix(rep(NA, 12),
+                               ncol = 12, nrow = 1))
+    colnames(empty.row) <- rank.names
+    empty.row$title <- best.sellers$title[i]
+    rank.df <- rbind(rank.df, empty.row)
+  } else {
+    rank.row[, 12] <- best.sellers$title[i]
+    colnames(rank.row) <- rank.names
+    rank.df <-rbind(rank.df, rank.row)
+  }
+}
+
+head(rank.df, 5)
+
+final.df <- merge(best.sellers, rank.df)
+kable(final.df)
+```
+
+And there we have a full dataframe of George R. R. Martin's New York Times Bestsellers.
