@@ -1,0 +1,160 @@
+---
+title: "Project 4"
+author: "Iden Watanabe"
+date: "April 11, 2018"
+output: html_document
+---
+
+## Acquiring Corpus
+
+We gather our corpus from [Apache SpamAssassin](http://spamassassin.apache.org/old/publiccorpus/).  The corpus itself is old, but is sufficient for our practice.  We pick 20021010_easy_ham, and 20050311_spam_2 for the purpose of this exercise for training.  20030228_easy_ham_2 and 20030228_spam will be used as tests.  The book steps through how to download files directly off a website, but in this scenario all of the emails are already collected and compressed into folders.  We download and extract them into folders "easy_ham" and "spam_2" respectively.
+
+```{r setup, echo = FALSE, message = FALSE}
+library(tm)
+library(stringr)
+library(RTextTools)
+```
+
+## Reading Corpus
+
+Once the files are downloaded and extracted, we can begin to read each email into a corpus.  For this, we will need to utilize the base function `list.files()` to collect all the files in each folder, and `readLines()` to read each file into the R environment.  We will also be utilizing `str_c()` from the `Stringr` library to concatenate folders with file names.
+
+```{r reading}
+ham.train <- list.files("easy_ham/")
+spam.train <- list.files("spam_2/")
+ham.test <- list.files("easy_ham_2/")
+spam.test <- list.files("spam/")
+
+h.tr <- length(ham.train)
+s.tr <- length(spam.train)
+h.te <- length(ham.test)
+s.te <- length(spam.test)
+
+n <- h.tr + s.tr + h.te + s.te
+
+emails <- rep(NA, n)
+
+for(i in 1:h.tr){
+  file.source <- str_c("easy_ham/", ham.train[i])
+  tmp <- readLines(file.source)
+  tmp <- str_c(tmp, collapse = "")
+  emails[i] <- tmp
+}
+
+for(i in (h.tr + 1):(h.tr + s.tr)){
+  x <- i - h.tr
+  file.source <- str_c("spam_2/", spam.train[x])
+  tmp <- readLines(file.source)
+  tmp <- str_c(tmp, collapse = "")
+  emails[i] <- tmp
+}
+
+for(i in (h.tr + s.tr + 1):(h.tr + s.tr + h.te)){
+  x <- i - (h.tr + s.tr)
+  file.source <- str_c("easy_ham_2/", ham.test[x])
+  tmp <- readLines(file.source)
+  tmp <- str_c(tmp, collapse = "")
+  emails[i] <- tmp
+}
+
+for(i in (h.tr + s.tr + h.te + 1):n){
+  x <- i - (h.tr + s.tr + h.te)
+  file.source <- str_c("spam/", spam.test[x])
+  tmp <- readLines(file.source)
+  tmp <- str_c(tmp, collapse = "")
+  emails[i] <- tmp
+}
+```
+
+## Data Cleaning
+
+Each email begins with a typical email source chain, but unfortunately there is no quick and easy way of deleting this from every email.  It may, or may not play a role in our prediction models.  Short of going through almost every 4,000 emails to delete them, we won't find out this time.
+
+First, we'll actually turn our collection of emails into a proper corpus, then begin the process of cleaning our data.  In this scenario, we will remove punctuation and numbers, remove stop words, set all words to lower case, use stem words where applicable, and remove terms appearing in less than 10% of emails.  We also want to add a user-defined meta category for whether the email is spam or ham.
+
+```{r cleaning}
+email.corpus <- Corpus(VectorSource(emails))
+
+control.list <- list(removePunctuation = TRUE, stopwords = TRUE,
+                     removeNumbers = TRUE, tolower = TRUE, stemDocument = TRUE)
+
+dtm <- DocumentTermMatrix(email.corpus, control = control.list)
+dtm <- removeSparseTerms(dtm, 0.90)
+
+spam <- c(rep("ham", h.tr),
+          rep("spam", s.tr),
+          rep("ham", h.te),
+          rep("spam", s.te))
+```
+
+### Cleaning Aside
+
+We would have preferred to do the labeling by using the metadata, as done in the textbook, however `meta()` didn't seem to be working.
+
+```{r aside1}
+meta(email.corpus[[1]], tag = "spam") <- 0
+meta(email.corpus[[1]])
+```
+
+This holds true even if we didn't use a boolean, but rather a character vector.
+
+```{r aside2}
+meta(email.corpus[[1]], tag = "spam") <- "NO"
+meta(email.corpus[[1]])
+```
+
+Any user-defined metadata refuses to appear.
+
+
+## Train
+
+Now we create the train/test sets according to the textbook.  We will also be using support vector machines, random forest, and maximum entropy.
+
+```{r train}
+n <- length(spam)
+container <- create_container(dtm, labels = spam,
+                              trainSize = 1:(h.tr + s.tr),
+                              testSize = (h.tr + s.tr + 1):n,
+                              virgin = FALSE)
+
+svm.model <- train_model(container, "SVM")
+tree.model <- train_model(container, "TREE")
+maxent.model <- train_model(container, "MAXENT")
+
+svm.out <- classify_model(container, svm.model)
+tree.out <- classify_model(container, tree.model)
+maxent.out <- classify_model(container, maxent.model)
+
+labels.out <- data.frame(correct.label = spam[(h.tr + s.tr + 1):n],
+                         svm = as.character(svm.out[,1]),
+                         tree = as.character(tree.out[,1]),
+                         maxent = as.character(maxent.out[,1]),
+                         stringsAsFactors = FALSE)
+```
+
+## Results
+
+Once we've done all the training and testing, let's see what the results are.
+
+### SVM
+
+```{r svmresults}
+table(labels.out[,1] == labels.out[,2])
+prop.table(table(labels.out[,1] == labels.out[,2]))
+```
+
+### Random Forest
+
+```{r rfresults}
+table(labels.out[,1] == labels.out[,3])
+prop.table(table(labels.out[,1] == labels.out[,3]))
+```
+
+### Maximum Entropy
+
+```{r maxresults}
+table(labels.out[,1] == labels.out[,4])
+prop.table(table(labels.out[,1] == labels.out[,4]))
+```
+
+Out of all three, it's clear that SVM performed the best at identifying spam messages, but it's hardly better than just flipping a coin.  Perhaps part of this is due to using RTextTools rather than a different library?  There are other dedicated libraries out there.  Or perhaps this is due to our data not being clean enough.  Were we to remove the address section on each email, would that lessen the noise in our dataset?  Hard to tell.
