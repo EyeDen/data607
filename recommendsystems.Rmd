@@ -1,0 +1,41 @@
+---
+title: "Recommender Systems"
+author: "Iden Watanabe"
+date: "April 17, 2018"
+output: html_document
+---
+
+## Scenario Design Analysis on Instagram
+
+### Target Users
+
+Instagram's target users are two-fold:
+
+  1) There are ordinary people who lightly engage with the platform, posting only pictures of their life to share and engage with friends.
+  
+  2) There are power users who accumulate large followings of people by filling some sort of niche.  Pet-centric Instagrams are an example.  It then becomes a platform from which they launch their business by pushing their own branded items, or by utilizing sponsored posts.
+
+
+### Key Goals
+
+The key goals for the light users are to simply log in, post a photo, and like or comment photos of their friends.  Essentially the same as any other social media platform, but one more focused on images.  They like the positive feedback loop of posting and getting likes on what they post, or liking what their friends post.
+
+The key goals for heavy users are to make sure they appear in as many feeds as they can, and get as many people to engage with their photos as possible.  They also aren't as likely to take long breaks from the platform as light users will if not enough friends engage with their posts.  They *need* people to engage.
+
+### How Instagram Helps Users
+
+For light users, the interface is simple enough.  A person can take a photo directly from the app, or use a photo in their library, run it through filters that are offered, or customize each filter, and then post with a caption, and cross-post it to multiple platforms.  The photo then appears in their feed, along with other photos from those they follow.  An empty heart becomes a full one if you like it.  Notifications keep users aware of people who like their photos, or tag you in photos.
+
+For heavy users, all the above applies, except they also take advantage of Instagram's recommendation system.  When searching for new friends to follow, Instagram will offer suggested images / accounts based on how you interact with people's photos and what the content of those photos are.  Also, Instagram's feed is not strictly chronological anymore, rather it prioritizes certain posts over others depending on your interaction with them: for example accounts you more frequently interact with will appear sooner / higher in your feed whenever new things are posted.
+
+## Reverse Engineer
+
+From [this](https://medium.com/the-mission/how-the-instagram-algorithm-works-and-what-you-can-do-about-it-cca28d0b2b0b) Medium post and [this](https://www.nytimes.com/2018/03/22/technology/instagram-algorithm-change.html) other website, it seems that Instagram's new feed is heavily based on interaction.  Therefore heavy users have to take into account, not only the content of what they post, but also try to figure out *when* is the best time as well.
+
+The user recommendation system is probably a lot like other social media recommendation systems, especially Facebook's, since they own Instagram.  The more shared friends you have in common, the more it's likely to suggest you be friends with them, because you're likely to be friends in real life.  Posts that people you follow engage highly with will also be pushed in your recommendations, along with accounts that post similar things to what you follow / engage with.
+
+## Improvements
+
+So it seems like Instagram is the middle man, or platform trying to bridge both types of users.  The problem with an algorithm-based feed over a chronological one would be that users inevitably find themselves trapped in an echo chamber of content partially of their own making.  They'll only ever see new things along the lines of things they enjoy, but maybe not radically new things they might like.  For content producers, the new algorithm is a bit of a headache as well, at least for those who might consider themselves more of a hobbyist, as they now have to track their posts and engagements a lot more closely.  Lastly, what about light users who are more lurkers than anything else?  They have an Instagram account only to follow their friends / celebrities / whatever, but don't engage by liking.  Is content stale for them?  How could Instagram encourage them to actually participate?
+
+Well, Instagram has heard some of the complaints and in fact has returned to a more chronological feed according to the [New York Times](https://www.nytimes.com/2018/03/22/technology/instagram-algorithm-change.html).  An option to manually refresh the feed is good, and should probably be implemented.  Anything to help the user feel a little more engaged, as long as it goes seamlessly.  Another thing would be to have a separate recommendation algorithm that incorporates the most engaged Instagram posts of the day, or perhaps the most popular posts in the city / state that the user lives in.  It would be a way to get them to possibly engage with more content, while also helping to broaden the type of content they like.
