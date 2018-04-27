@@ -1,0 +1,104 @@
+---
+title: "Week13"
+author: "Iden Watanabe"
+date: "April 25, 2018"
+output: html_document
+---
+
+```{r echo = FALSE, message = FALSE}
+library(RMySQL)
+library(RMongo)
+library(knitr)
+library(jsonlite)
+library(stringr)
+```
+
+In order to migrate our relational database, in this case the "flights" database in MySQL, we first need to establish a connection.  For the purpose of this assignment, I've created a new account and password.
+
+```{r}
+con <- dbConnect(MySQL(),
+                 user = "school",
+                 password = "a123456",
+                 host = "localhost",
+                 dbname = "flights")
+
+tables <- dbListTables(con)
+
+tables
+```
+
+We see that the "flights" database has five tables associated with it.  We'll need to migrate all of them.  To me, the simplest way to achieve this is with the `dbReadTable` function, but one can also use SQL language to fetch each table utilizing `dbGetQuery`.
+
+```{r}
+airlines <- dbReadTable(con, tables[1])
+airlines
+```
+
+Simple.  There are return characters for each airline line, but that can easily be cleaned up.  None of the other tables have this quirk.
+
+```{r}
+airlines$name <- str_replace(airlines$name, "\\r", "")
+
+airports <- dbReadTable(con, tables[2])
+flights <- dbReadTable(con, tables[3])
+planes <- dbReadTable(con, tables[4])
+weather <- dbReadTable(con, tables[5])
+```
+
+Now, we need to import the data into a NoSQL database.  For the purpose of this assignment, I've chosen MongoDB.  I was unable to find a way to create a new database in MongoDB using `RMongo`, so for the purpose of this assignment we will assume that a user has already opened their MongoDB connection using `"C:\Program Files\MongoDB\Server\3.6\bin\mongod.exe"` for the default, and then using Compass to connect, or working straight from the command line, has created a new database `flights`.
+
+```{r}
+mongo <- mongoDbConnect("flights")
+```
+
+Using `RMongo`, the only way we can insert new information into MongoDB is via `dbInsertDocument`, however this necessitates converting the data frames into a JSON document.  Fortunately, the `jsonlite` package has a function to do this called `toJSON`.  However, `toJSON` will add brackets (`[]`) to the string, which we must remove before writing.  This can be repetitive, so it's easiest to do this by writing a function.
+
+Unfortunately, simply calling `dbInsertDocument` on a dataframe converted into a JSON format via `toJSON` only seems to write the first entry before stopping.  From [this](https://stackoverflow.com/questions/48299224/r-dbinsertdocument-multiple-documents) StackOverflow question, it seems right now the only solution is to iterate over the list.
+
+```{r}
+# Function writes an entry to a MongoDB database
+to.mongo <- function(conn, name, df){
+  df.json <- toJSON(df)
+  
+  df.json <- str_replace(df.json, "\\[", "")
+  df.json <- str_replace(df.json, "\\]", "")
+  
+  dbInsertDocument(conn, name, df.json)
+}
+
+# Function simply iterates over each row of our dataframes
+mongo.mover <- function(conn, name, df){
+  for(i in 1:nrow(df)) {
+    to.mongo(conn, name, df[i, ])
+  }
+}
+
+mongo.mover(mongo, "airlines", airlines)
+mongo.mover(mongo, "airports", airports)
+mongo.mover(mongo, "flights", flights)
+mongo.mover(mongo, "planes", planes)
+mongo.mover(mongo, "weather", weather)
+```
+
+We can now do some simple tests to see if we've imported everything correctly.
+
+```{r}
+mon.airlines <- dbGetQuery(mongo, "airlines", '{"carrier":"HA"}')
+kable(mon.airlines)
+
+mon.airport <- dbGetQuery(mongo, "airports", '{"faa": "HNL"}')
+kable(mon.airport)
+```
+
+So what are the advantages/disadvantages of using a NoSQL database like MongoDB?  One of the main advantages to NoSQL is that it is dynamic.  [This](https://medium.com/xplenty-blog/the-sql-vs-nosql-difference-mysql-vs-mongodb-32c9980e67b2) blog notes that NoSQL is flexible.  You can:
+
+1) Create documents without having to first define their structure
+2) Each document can have its own unique structure
+3) The syntax can vary from database to database
+4) You can add fields as you go.
+
+They also note that NoSQL scales differently.  "NoSQL databases are horizontally scalable...meaning that you handle more traffic by sharding, or adding more servers...it's like adding more floors to the same building versus adding more buildings to the neighborhood".
+
+It seems like SQL and NoSQL play their own roles.  If you know your data will be structured a certain way, or expect it to be structured, and have the time to put in the effort to pre-planning, then SQL should be great.  If, however, you expect to utilize different types of data, or multiple unstructured sources of data, and are in a small team where you don't have the time to standardize everything, then NoSQL would suit you best.
+
+That said, NoSQL is newer and integration isn't perfect cross platform, as I found out in this assignment.  `RMongo` is not a great package for connecting R to MongoDB, and migrating a HUGE dataframe to MongoDB row-by-row is very time consuming.
