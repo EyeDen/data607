@@ -1,0 +1,856 @@
+---
+title: "Final"
+author: "Iden Watanabe"
+date: "May 2, 2018"
+output:
+  html_document:
+    theme: yeti
+    highlight: haddock
+    toc: true
+    toc_depth: 3
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+---
+
+```{r Libraries&Options, include = FALSE}
+require(dplyr)
+require(tidyr)
+require(ggplot2)
+require(knitr)
+require(scales)
+require(reshape2)
+require(gridExtra)
+require(kableExtra)
+require(fiftystater)
+require(mapproj)
+require(stringr)
+
+opts_chunk$set(fig.width = 12, fig.height = 8,
+               echo = FALSE, warning = FALSE, message = FALSE)
+```
+<br>
+
+# **1. Introduction**
+
+<br>
+
+Recently, the U.S. Department of Housing and Urban development released its [2018 income limits](https://www.huduser.gov/portal/datasets/il.html#2018_query).  The purpose of it is to "determine eligibility for assisted housing programs".  The report outlines that a single person making \$49.450 qualifies for "low-income" status, while a person making \$30,900 annually qualifies for "very low-income".  For Honolulu County, which comprises the entirety of the island Oahu, a family of **four** can make \$93,000 and be considered "low-income".  These numbers are shocking.
+
+We will attempt to understand how this might have happened in Hawaii by examining data taken from the U.S. Census Bureau's American Community Survey, the U.S. Bureau of Labor Statistics, and the State of Hawaii's Department of Business, Economic Development & Tourism.  We will also see if we can discover a way to mitigate this rise in the future.
+
+<br>
+
+# **2. Data Acquisition & Cleaning **
+
+<br>
+
+#### **A. Sources**
+
+<br>
+
+The census data and BLS data comes not from their own respective sites, but from [DataUSA](https://datausa.io), courtsy of their own API.  The documention for using it can be accessed [here](https://github.com/DataUSA/datausa-api/wiki/Data-API).  The employment data, however, was utilized via the site's "cart" function, wherein one can add the data of one of their graphs to a "cart" to examine the raw data used to draw the graphic, then download the full table as a CSV file.  This was downloaded and will be uploaded to our GitHub for perusal.
+
+Meanwhile, the Hawaii DBEDT data can be accessed through their [databook](http://dbedt.hawaii.gov/economic/databook/).  We will restrict ourselves to their CPI-U data.  As it is in the Excel format, and full of other extraneous information, we cleaned it in Excel by removing the title and other notes.  The raw file can be downloaded [here](http://files.hawaii.gov/dbedt/economic/databook/2016-individual/14/140416.xls), and our own version will be uploaded in our GitHub.
+
+<br>
+
+#### **B. Cleaning**
+
+<br>
+
+We will keep the raw dataframe to perform an analysis on where Hawaii ranks relative to other states, but when we wish to compare Hawaii to the national average, we will need to clean these dataframes slightly.  The dataframes comparing Hawaii to US will have a "comp." tag for each variable name.
+
+```{r DatausaAPI, echo = TRUE}
+basic.clean <- function(df){
+  df <- df[, -3]
+  df <- reshape(df, idvar = "geo_name", timevar = "year", direction = "wide")
+  
+  return(df)
+}
+
+comp.data <- function(df){
+  df.hi <- subset(df, geo_name == "Hawaii")
+  df.us <- subset(df, geo_name != "Hawaii")
+  df.us <- df.us[, -1]
+  df.us <- df.us %>% summarise_all(funs(mean))
+  df.us$geo_name <- "US"
+
+  df.final <- rbind(df.hi, df.us)
+  
+  return(df.final)
+}
+
+income <- read.csv("https://api.datausa.io/api/csv/?show=geo&sumlevel=state&force=acs.yg&required=income")
+income <- basic.clean(income)
+comp.inc <- comp.data(income)
+
+wages <- read.csv("https://api.datausa.io/api/csv/?show=geo&sumlevel=state&required=avg_wage,num_ppl")
+wages <- basic.clean(wages)
+comp.wages <- comp.data(wages)
+
+pop <- read.csv("https://api.datausa.io/api/csv/?show=geo&sumlevel=state&force=acs.yg&required=pop")
+pop <- basic.clean(pop)
+comp.pop <- comp.data(pop)
+
+transport <- read.csv("https://api.datausa.io/api/csv/?show=geo&sumlevel=state&force=acs.yg_transport")
+transport <- basic.clean(transport)
+comp.trans <- comp.data(transport)
+
+# Property Value & Tax
+prop.tax <- read.csv("https://api.datausa.io/api/csv/?show=geo&sumlevel=state&force=acs.yg_property_tax")
+prop.tax <- basic.clean(prop.tax)
+comp.prop.tax <- comp.data(prop.tax)
+
+prop.value <- read.csv("https://api.datausa.io/api/csv/?show=geo&sumlevel=state&force=acs.yg_property_value")
+prop.value <- basic.clean(prop.value)
+comp.prop.value <- comp.data(prop.value)
+
+# For income distribution, we're only concerned with Hawaii
+inc.dist <- read.csv("https://api.datausa.io/api/csv/?show=geo&sumlevel=state&force=acs.yg_income_distribution")
+inc.dist <- basic.clean(subset(inc.dist, geo_name == "Hawaii"))
+inc.dist <- inc.dist[1, c(1, seq(2, 137, 2))]
+inc.dist <- inc.dist[,c(1, 17, 3, 6, 8:16, 2, 4, 5, 7, 18,
+                       34, 20, 23, 25:33, 19, 21, 22, 24, 35,
+                       51, 37, 40, 42:50, 36, 38, 39, 41, 52,
+                       68, 54, 57, 59:67, 53, 55, 56, 58, 69)]
+
+emp.ind <- read.csv("https://raw.githubusercontent.com/EyeDen/data607/master/Final%20Project/emp_ind.csv")
+emp.ind <- emp.ind[, -c(2,3,5,6)]
+hi.emp.ind <- subset(emp.ind, geo_name == "Hawaii")
+ny.emp.ind <- subset(emp.ind, geo_name == "New York")
+
+```
+
+```{r DBEDT, echo = TRUE}
+comp.cpi <- read.csv("https://raw.githubusercontent.com/EyeDen/data607/master/Final%20Project/dbedt_cpi_comp.csv")
+cpi.cat <- read.csv("https://raw.githubusercontent.com/EyeDen/data607/master/Final%20Project/dbedt_cpi_cat.csv")
+
+# Transform comp.cpi into a wide dataframe
+years <- comp.cpi[, 1]
+hawaii <- comp.cpi[, 2]
+hawaii <- as.data.frame(matrix(hawaii, nrow = 1))
+colnames(hawaii) <- years
+us <- comp.cpi[, 3]
+us <- as.data.frame(matrix(us, nrow = 1))
+colnames(us) <- years
+comp.cpi <- rbind(hawaii, us)
+comp.cpi$geo_name <- c("Honolulu", "US")
+comp.cpi <- comp.cpi[, c(78, 1:77)]
+
+cpi.cat <- cpi.cat[, -2]
+cpi.cat[, 1] <- str_replace_all(cpi.cat[, 1], "1/", "")
+cpi.cat[, 1] <- str_replace_all(cpi.cat[, 1], "2/", "")
+cpi.cat[, 1] <- str_replace_all(cpi.cat[, 1], "3/", "")
+cpi.cat[, 1] <- str_replace_all(cpi.cat[, 1], "4/", "")
+cpi.cat[, 1] <- str_replace_all(cpi.cat[, 1], "5/", "")
+cpi.cat[, 1] <- str_replace_all(cpi.cat[, 1], "6/", "")
+cpi.cat[, 1] <- str_replace_all(cpi.cat[, 1], "7/", "")
+cpi.cat <- cpi.cat[-c(1, 35:50), ]
+colnames(cpi.cat) <- c("group", 2013, 2014, 2015, 2016)
+x <- rowSums(cpi.cat[, c(2:5)])
+cpi.cat <- cpi.cat[order(x, decreasing = TRUE), ]
+```
+
+<br>
+
+# **3. Exploratory Analysis **
+
+<br>
+
+#### **A. Median Income **
+
+<br>
+
+Now that we have our data, let's start with some basic analysis.  First, we'll start by exploring the income data.  We expect that, if HUD's report of \$40,850 being classified as "low income" is correct, then Hawaii's median income should rank high relative to the other states.
+
+```{r Income Map}
+income.map <- income
+income.map[, 1] <- tolower(income.map[, 1])
+colnames(income.map) <- c("geo_name", 2013, 2014, 2015, 2016)
+ggplot(melt(income.map), aes(map_id = geo_name)) +
+  geom_map(aes(fill = value), map = fifty_states) +
+  expand_limits(x = fifty_states$long, y = fifty_states$lat) +
+  coord_map() +
+  scale_x_continuous(breaks = NULL) +
+  scale_y_continuous(breaks = NULL) +
+  labs(title = "Median Income") +
+  facet_wrap(~ variable, ncol = 2) +
+  theme(legend.position = "bottom",
+        legend.text = element_text(angle = 90, hjust = 1),
+        panel.background = element_blank())
+```
+
+Here we see that Hawaii's median income ranks fairly high, proving our assumption correct, along with other obvious states like Alaska, Maryland, and Massachusetts.  If we look at the numbers in the table, we can see where exactly the state ranks.
+
+```{r Income}
+find.rank <- function(df, rank.list){
+  for(i in 2:ncol(df)){
+    df <- df[order(-df[,i]),]
+    rank.list[i-1] <- which(df[,1] == "Hawaii")
+  }
+  
+  return(rank.list)
+}
+
+
+hi.rank <- c(0, 0, 0, 0)
+hi.rank <- find.rank(income, hi.rank)
+
+kable(head(income[order(income[, 2], income[, 3], income[, 4], income[, 5],
+                        decreasing = TRUE), ]), "html", row.names = FALSE) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+```
+
+When we attempt to arrange the states according to their median income for 2013 - 2016 Hawaii sits at fifth place.  If we wanted to be more accurate, we can pinpoint Hawaii's place for each year.  In 2013 they were 5th, in 2014 and 2015 they came in 6th, and in 2016 they were back in 5th again.  Compared against the nation's median income, we see just how much more Hawaii residents earn.
+
+```{r IncomeGraph}
+ggplot(melt(comp.inc), aes(variable, value, group = geo_name)) +
+  geom_line(aes(color = geo_name), size = 1.5) +
+  geom_point(aes(color = geo_name), size = 2) +
+  labs(title = "Median Income US vs HI",
+       x = "Year", y = "Dollars") +
+  theme_minimal()
+```
+
+
+This appears to be good for Hawaii.  More money is always great, right?  However, this is only the median.  We need to see how the wealth is distributed among the population.
+
+<br>
+
+#### **B. Income Distribution **
+
+<br>
+
+```{r Distribution}
+dist.names <- c("< 10k", "10-15k", "15-20k", "20-25k", "25-30k", "30-35k", "35-40k", "40-45k", "45-50k",
+                "50-60k", "60-75k", "75-100k", "100-125k", "125-150k", "150-200k", "200k +")
+dist.2013 <- inc.dist[, 2:17]
+dist.2013 <- dist.2013/inc.dist[, 18]
+colnames(dist.2013) <- dist.names
+
+dist.2014 <- inc.dist[, 19:34]
+dist.2014 <- dist.2014/inc.dist[, 35]
+colnames(dist.2014) <- dist.names
+
+
+dist.2015 <- inc.dist[, 36:51]
+dist.2015 <- dist.2015/inc.dist[, 52]
+colnames(dist.2015) <- dist.names
+
+
+dist.2016 <- inc.dist[, 53:68]
+dist.2016 <- dist.2016/inc.dist[, 69]
+colnames(dist.2016) <- dist.names
+
+
+d1 <- ggplot(melt(dist.2013), aes(variable, value)) +
+  geom_bar(stat = "identity", fill = "#AED6F1", colour = "black") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  labs(title = "Household Income Distribution 2013", x = "", y = "Percent of Households")
+
+d2 <- ggplot(melt(dist.2014), aes(variable, value)) +
+  geom_bar(stat = "identity", fill = "#A9DFBF", colour = "black") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  labs(title = "Household Income Distribution 2014", x = "", y = "Percent of Households")
+
+d3 <- ggplot(melt(dist.2015), aes(variable, value)) +
+  geom_bar(stat = "identity", fill = "#F5CBA7", colour = "black") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  labs(title = "Household Income Distribution 2015", x = "", y = "Percent of Households")
+
+d4 <- ggplot(melt(dist.2016), aes(variable, value)) +
+  geom_bar(stat = "identity", fill = "#F5B7B1", colour = "black") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  labs(title = "Household Income Distribution 2016", x = "", y = "Percent of Households")
+
+grid.arrange(d1, d2, ncol = 2)
+grid.arrange(d3, d4, ncol = 2)
+```
+
+We see that the distribution holds relatively stable across the four years of data.  Most households earn \$60-125k, although there is also a high amount of people who earn less than \$10k.  However, let's compare this to what HUD calculated to be low-income for households of 2 people.  Obviously, this is a very rough estimate.  Not every household is comprised of 2 income earners, but let's just use this as an average.  If you click through HUD's website for previous years, the low-income threshold for a 2 person household is \$51,325.  Let's add up the percentages from our graphs.  How many households fall below this threshold?
+
+```{r lowIncomeHouseholds, echo = TRUE}
+low.income <- c(0, 0, 0, 0)
+low.income[1] <- sum(dist.2013[,1:10])
+low.income[2] <- sum(dist.2014[,1:10])
+low.income[3] <- sum(dist.2015[,1:10])
+low.income[4] <- sum(dist.2016[,1:10])
+
+mean(low.income)
+```
+
+As we can see, the average overall four years is roughly 43%.  That is a lot of people, and granted we made some big assumptions to calculate it, but this puts it in context.  Now, low-income does not mean poor, at least by how the Census defines "poverty".  The Census Bureau calculates the poverty threshold each year, and it usually falls below what HUD calls "extremely low-income".  Regardless, being within this range must affect quality of life by some degree.
+
+<br>
+
+#### **C. Consumer Price Index **
+
+<br>
+
+To examine Hawaii resident's quality of life, we can turn to the Consumer Price Index.  It is widely used by the U.S. Bureau of Labor Statistics to measure inflation.  Eight major groups are tracked by having certain goods and services of each put into a "basket" to add up their cost.  The eight groups are:
+
+> 1) Food and beverages
+2) Housing
+3) Apparel
+4) Transportation
+5) Medical care
+6) Recreation
+7) Education and communication
+8) Other goods and services
+
+The calculation is usually done as such:
+
+> CPI = (Market Cost of Basket This Year / Market Cost of Basket in Base Year) X 100
+
+There are two types of CPIs.  The CPI-W is the index for Urban Wage Earners and Clerical Workers.  The CPI-U is the index for Urban Consumers.  CPI-U generally accounts for 88% of the U.S. and is the better representation of the general public, so we shall examine Hawaii's CPI-U courtesy of their Department of Business, Economic Development & Tourism.
+
+```{r cpi}
+ggplot(melt(comp.cpi[, c(1, 75:78)]), aes(variable, value, group = geo_name)) +
+  geom_line(aes(color = geo_name), size = 1.2) +
+  geom_point(aes(color = geo_name), size = 1.2) +
+  labs(title = "CPI-U Honolulu vs US 2013 - 2016",
+       x = "Year", y = "CPI-U") +
+  scale_fill_brewer(palette = "Paired") +
+  theme_minimal()
+```
+
+We see that Honolulu's CPI-U is higher than that of the US's average, meaning that a lot of common goods and services are more expensive in Honolulu than the U.S.  Thanks to Hawaii's Department of Business, Economic Development & Tourism, we can see the breakdown of the "basket" by categories for 2012 - 2016.
+
+```{r cpi categories}
+ggplot(melt(cpi.cat), aes(group, value)) +
+  geom_bar(stat = "identity", fill = "blue", colour = "white") +
+  facet_wrap(~ variable, ncol = 2) +
+  labs(title = "CPI Breakdown by Category for Hawaii",
+       x = "Categories", y = "CPI  Value") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+        panel.background = element_blank())
+```
+
+Hawaii residents pay the most for "Other goods and services", medical care, fuel, and housing.  Fuel makes sense, as the state has no natural gas resources and so must import all of its coal and oil.  Other goods and services is not particularly helpful.
+
+Let us return to the overall CPI-U and try to find some context.  From the U.S. Bureau of Labor Statistics's [website](https://data.bls.gov/timeseries/CUURS12ASA0?amp%253bdata_tool=XGtable&output_view=data&include_graphs=true), we see that the NY-NJ-PA area's CPI-U for 2013 - 2016 is `256.833, 260.230, 260.558, 263.365`.
+
+```{r hiVSnyc}
+nyc <- c(256.833, 260.230, 260.558, 263.365)
+nyc <- as.data.frame(matrix(nyc, nrow = 1))
+colnames(nyc) <- c(2013, 2014, 2015, 2016)
+nyc$geo_name <- "NYC"
+nyc <- nyc[, c(5, 1:4)]
+comp.nyc <- rbind(comp.cpi[1, c(1, 75:78)], nyc)
+
+ggplot(melt(comp.nyc), aes(variable, value, fill = geo_name)) +
+  geom_bar(stat = "identity", position = "dodge", colour = "black") +
+  labs(title = "CPI-U Honolulu vs NYC 2013 - 2016",
+       x = "Year", y = "CPI-U") +
+  scale_fill_brewer(palette = "Paired") +
+  theme_minimal()
+```
+
+So, when framed in context, Honolulu's prices are comparable to New York City's.  What about the wages?
+
+```{r wages}
+ny.wages <- subset(wages, geo_name == "New York")
+
+ny.wages <- ny.wages[, c(1, 2, 4, 6)]
+comp.wages <- comp.wages[, c(1, 2, 4, 6)]
+comp.wages <- rbind(comp.wages, ny.wages)
+colnames(comp.wages) <- c("geo_name", 2014, 2015, 2016)
+
+ggplot(melt(comp.wages), aes(variable, value, fill = geo_name)) +
+  geom_bar(stat = "identity", position = "dodge", colour = "black") +
+  scale_fill_brewer(palette = "Accent") +
+  theme_minimal() +
+  labs(title = "Average Wage (HI/NY/US)", x = "Year", y = "Wage")
+```
+
+Here we see that while Hawaii's average wage is comparable to that of the nation's as a whole, it lags behind New York.  This is particularly notable because Hawaii's average CPI-U is higher than the nation's but nearly equal to New York's.  Of course, there is a reason it's so large.  Hawaii is an island located far away from the mainland U.S.  Almost every product must be shipped to Hawaii, usually via boat.  Nevertheless, New York's high wage helps eat into the rise of inflation, whereas Hawaii lags behind.  This means an average employee's dollar will get them more in New York than Hawaii.
+
+Aside from common goods and services, what else is eating into Hawaii residents' pockets?  Let's examine property taxes and property values.  From here we will continue to use New York as another way of contextualizing the data.
+
+<br>
+
+#### **D. Property Tax & Value**
+
+<br>
+
+```{r propertytax}
+clean.tax <- function(df, year){
+  temp <- df
+  
+  tax.names <- c("geo_name", "None", "< 800", "800-1500","1500-2000", "2000-3000", "> 3000")
+  temp <- temp[, -grep("moe", colnames(temp))]
+  temp <- temp[, c(1, grep(year, colnames(temp)))]
+  temp <- temp[, c(1, 7, 6, 5, 2:4)]
+  colnames(temp) <- tax.names
+  
+  temp$households <- c(0, 0, 0)
+  temp[1, 8] <- rowSums(temp[1, 2:7])
+  temp[2, 8] <- rowSums(temp[2, 2:7])
+  temp[3, 8] <- rowSums(temp[3, 2:7])
+  temp[1, 2:7] <- temp[1, 2:7] / temp[1, 8]
+  temp[2, 2:7] <- temp[2, 2:7] / temp[2, 8]
+  temp[3, 2:7] <- temp[3, 3:7] / temp[3, 8]
+  
+  temp <- temp[, c(1:7)]
+  
+  return(temp)
+}
+
+ny.prop.tax <- subset(prop.tax, geo_name == "New York")
+comp.prop.tax <- rbind(comp.prop.tax, ny.prop.tax)
+
+tax.2013 <- clean.tax(comp.prop.tax, "2013")
+tax.2014 <- clean.tax(comp.prop.tax, "2014")
+tax.2015 <- clean.tax(comp.prop.tax, "2015")
+tax.2016 <- clean.tax(comp.prop.tax, "2016")
+
+t1 <- ggplot(melt(tax.2013), aes(variable, value, fill = geo_name)) +
+  geom_bar(stat = "identity", position = "dodge", colour = "black") +
+  labs(title = "Proptery Tax 2013 (HI/NYC/US)",
+       x = "", y = "Share") +
+  scale_fill_brewer(palette = "RdYlGn") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+t2 <- ggplot(melt(tax.2014), aes(variable, value, fill = geo_name)) +
+  geom_bar(stat = "identity", position = "dodge", colour = "black") +
+  labs(title = "Proptery Tax 2014 (HI/NYC/US)",
+       x = "", y = "Share") +
+  scale_fill_brewer(palette = "RdYlGn") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+t3 <- ggplot(melt(tax.2015), aes(variable, value, fill = geo_name)) +
+  geom_bar(stat = "identity", position = "dodge", colour = "black") +
+  labs(title = "Proptery Tax 2015 (HI/NYC/US)",
+       x = "", y = "Share") +
+  scale_fill_brewer(palette = "RdYlGn") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+t4 <- ggplot(melt(tax.2016), aes(variable, value, fill = geo_name)) +
+  geom_bar(stat = "identity", position = "dodge", colour = "black") +
+  labs(title = "Proptery Tax 2016 (HI/NYC/US)",
+       x = "", y = "Share") +
+  scale_fill_brewer(palette = "RdYlGn") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+grid.arrange(t1, t2, ncol = 2)
+grid.arrange(t3, t4, ncol = 2)
+```
+
+In terms of property taxes, the biggest share for Hawaii is the \$800-1500 range.  For New Yorkers, they apparently pay \$2000-3000.  For the US as a whole, the largest share is \$3000.  Overall it seems as though Hawaii residents pay a somewhat even distribution of property taxes.  Low taxes must be a good thing, but it is only good in relation to property value.
+
+```{r propertyvalue}
+clean.value <- function(df, year){
+  value.names <- c("geo_name", "< 10k", "10-15k","15-20k", "20-25k", "25-30k", "30-35k", "35-40k",
+                 "40-50k", "50-60k", "60-70k", "70-80k", "80-90k", "90-100k", "100-125k",
+                 "125-150k", "150-175k", "175-200k", "200-250k", "250-300k", "300-400k", "400-500k",
+                 "500-750k", "750-1m", "> 1m")
+  value.order <- c(1, 25, 3, 6, 10, 12, 14, 15, 17, 19:21, 23, 24, 2, 4, 5, 7, 9,
+                 11, 13, 16, 18, 22, 8)
+  temp <- df
+  
+  temp <- temp[, -grep("moe", colnames(temp))]
+  temp <- temp[, c(1, grep(year, colnames(temp)))]
+  
+  temp[1, 2:25] <- temp[1, 2:25] / temp[1, 26]
+  temp[2, 2:25] <- temp[2, 2:25] / temp[2, 26]
+  temp[3, 2:25] <- temp[3, 2:25] / temp[3, 26]
+  
+  temp <- temp[, 1:25]
+  temp <- temp[, value.order]
+  colnames(temp) <- value.names
+  
+  return(temp)
+}
+
+ny.prop.value <- subset(prop.value, geo_name == "New York")
+comp.prop.value <- rbind(comp.prop.value, ny.prop.value)
+
+value.2013 <- clean.value(comp.prop.value, 2013)
+value.2014 <- clean.value(comp.prop.value, 2014)
+value.2015 <- clean.value(comp.prop.value, 2015)
+value.2016 <- clean.value(comp.prop.value, 2016)
+
+ggplot(melt(value.2013), aes(variable, value, fill = geo_name)) +
+  geom_bar(stat = "identity", position = "dodge", colour = "black") +
+  labs(title = "Property Value (HI/NYC/US) 2013",
+       x = "", y = "Share of Owner Occupied Housing") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  scale_fill_brewer(palette = "RdYlGn")
+
+ggplot(melt(value.2014), aes(variable, value, fill = geo_name)) +
+  geom_bar(stat = "identity", position = "dodge", colour = "black") +
+  labs(title = "Property Value (HI/NYC/US) 2014",
+       x = "", y = "Share of Owner Occupied Housing") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  scale_fill_brewer(palette = "RdYlGn")
+
+ggplot(melt(value.2015), aes(variable, value, fill = geo_name)) +
+  geom_bar(stat = "identity", position = "dodge", colour = "black") +
+  labs(title = "Property Value (HI/NYC/US) 2015",
+       x = "", y = "Share of Owner Occupied Housing") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  scale_fill_brewer(palette = "RdYlGn")
+
+ggplot(melt(value.2016), aes(variable, value, fill = geo_name)) +
+  geom_bar(stat = "identity", position = "dodge", colour = "black") +
+  labs(title = "Property Value (HI/NYC/US) 2016",
+       x = "", y = "Share of Owner Occupied Housing") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  scale_fill_brewer(palette = "RdYlGn")
+```
+
+Well.  We see a large clustering of property value in the \$500-700k range for Hawaii residents.  In fact, the majority of owner occupied housing in Hawaii falls between \$300->1m.  If most are paying \$800-1500 in taxes, then it seems like a great deal for property owners in Hawaii.  This makes some sense as Hawaii is an island and real estate is a finite resource.  The market would make property values high, but owners living in the state would not want to suffer a high penalty for owning their own home.  This assumes that "owner occupied" is actually true.
+
+```{r ownerOccupied}
+ny.pop <- subset(pop, geo_name == "New York")
+comp.pop <- rbind(comp.pop, ny.pop)
+
+v.pop <- comp.prop.value[, c(1, grep("total_owner_occupied_housin", colnames(comp.prop.value)))]
+v.pop <- v.pop[, c(-grep("moe", colnames(v.pop)))]
+
+comp.percent <- v.pop[, c(2:5)] / comp.pop[, c(2:5)]
+comp.percent$geo_name <- c("Hawaii", "US", "New York")
+comp.percent <- comp.percent[, c(5, 1:4)]
+colnames(comp.percent) <- c("geo_name", "2013", "2014", "2015", "2016")
+
+ggplot(melt(comp.percent), aes(variable, value, fill = geo_name)) +
+  geom_bar(stat = "identity", position = "dodge", colour = "black") +
+  labs(title = "Owner Occupied Housing 2013 - 2016 (HI/NY/US)",
+       x = "Years", y = "Percent of Population") +
+  scale_fill_brewer(palette = "BuPu")
+```
+
+We see that a very small percentage of Hawaii residents actually own their own property compared to the national average.  Again, this makes a fair amount of sense for Hawaii.  Many people would like to own beachfront property on the islands.  Kauai in particular is the home to numerous celebrities.
+
+So the property value of Hawaii is high because it's a finite resource, yet less than 20% of the population seem to own their home because the location is desirable to others.  The number is likely higher, as we used the raw population number and not, say, the population of adults.  Nevertheless, it is a significantly small number.  This means that residents are less likely to purchase their own homes, and the high property values will contribute to high rents.  We're beginning to see why the HUD's limits for 2018 are so shockingly high.
+
+<br>
+
+#### **E. Employment Industries**
+
+<br>
+
+How do people in Hawaii make their living?
+
+```{r jobsHI}
+top.hi.2014 <- head(hi.emp.ind[order(hi.emp.ind[, 6], decreasing = TRUE), c(2, 3, 6)], 10)
+top.hi.2015 <- head(hi.emp.ind[order(hi.emp.ind[, 7], decreasing = TRUE), c(2, 4, 7)], 10)
+top.hi.2016 <- head(hi.emp.ind[order(hi.emp.ind[, 8], decreasing = TRUE), c(2, 5, 8)], 10)
+
+kable(top.hi.2014, "html", row.names = FALSE) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+
+kable(top.hi.2015, "html", row.names = FALSE) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+
+kable(top.hi.2016, "html", row.names = FALSE) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+```
+
+On the whole, we see that the top ten industries of Hawaii do not change over the 2014-2016 period.  They mostly comprise of retail, education, military, health, and real estate.  If we use our \$50,000 average for HUD's low-income, we find that half of these industries qualify: `Restaurants & Food Services, Elementary & secondary schools, Traveler accommodation, Colleges, universities & professional schools, including junior colleges, and Grocery Stores`.  Now let's examine New York's top industries by number of workers.
+
+```{r jobsNY}
+top.ny.2014 <- head(ny.emp.ind[order(ny.emp.ind[, 6], decreasing = TRUE), c(2, 3, 6)], 10)
+top.ny.2015 <- head(ny.emp.ind[order(ny.emp.ind[, 7], decreasing = TRUE), c(2, 4, 7)], 10)
+top.ny.2016 <- head(ny.emp.ind[order(ny.emp.ind[, 8], decreasing = TRUE), c(2, 5, 8)], 10)
+
+kable(top.ny.2014, "html", row.names = FALSE) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+
+kable(top.ny.2015, "html", row.names = FALSE) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+
+kable(top.ny.2016, "html", row.names = FALSE) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+```
+
+Interestingly, many of the same industries are also present in New York: education, health, construction, retail, and real estate.  How do their wages compare?  Remember, the CPI is nearly identical for this period of time.
+
+```{r jobsComparison}
+clean.jobs <- function(df1, df2){
+  temp <- merge(df1, df2, by = "naics_name")
+  temp[, 6] <- temp[, 2] - temp[, 4]
+  temp[, 7] <- temp[, 3] - temp[, 5]
+  colnames(temp) <- c("job", "hi_wage", "hi_ppl",
+                      "ny_wage", "ny_ppl", "dif_wage", "dif_ppl")
+  
+  return(temp)
+}
+
+comp.job.2014 <- clean.jobs(top.hi.2014, top.ny.2014)
+comp.job.2015 <- clean.jobs(top.hi.2015, top.ny.2015)
+comp.job.2016 <- clean.jobs(top.hi.2016, top.ny.2016)
+
+ggplot(melt(comp.job.2014[, c(1, 2, 4)]), aes(variable, value, fill = job)) +
+  geom_bar(stat = "identity", colour = "black") +
+  labs(title = "Difference in Industry Wages 2014",
+       x = "Location", y = "Average Wage") +
+  scale_y_continuous(labels = comma) +
+  scale_fill_brewer(palette = "Set2") +
+  theme_minimal()
+
+ggplot(melt(comp.job.2015[, c(1, 2, 4)]), aes(variable, value, fill = job)) +
+  geom_bar(stat = "identity", colour = "black") +
+  labs(title = "Difference in Industry Wages 2015",
+       x = "Location", y = "Average Wage") +
+  scale_y_continuous(labels = comma) +
+  scale_fill_brewer(palette = "Set2") +
+  theme_minimal()
+
+ggplot(melt(comp.job.2016[, c(1, 2, 4)]), aes(variable, value, fill = job)) +
+  geom_bar(stat = "identity", colour = "black") +
+  labs(title = "Difference in Industry Wages 2016",
+       x = "Location", y = "Average Wage") +
+  scale_y_continuous(labels = comma) +
+  scale_fill_brewer(palette = "Set2") +
+  theme_minimal()
+```
+
+Most of the shared industries of New York earn more than Hawaii.  Even in the rare instance where a Hawaii industry outearns a New York one, the difference is very minimal.  This means that if you work in these occupations, you are probably better off in New York where the property is cheaper and the goods are the same price.  What about the top earning industries?
+
+```{r topIndustries}
+top.wage.hi.2014 <- head(hi.emp.ind[order(hi.emp.ind[, 3], decreasing = TRUE), c(2, 3, 6)], 10)
+top.wage.hi.2015 <- head(hi.emp.ind[order(hi.emp.ind[, 4], decreasing = TRUE), c(2, 4, 7)], 10)
+top.wage.hi.2016 <- head(hi.emp.ind[order(hi.emp.ind[, 5], decreasing = TRUE), c(2, 5, 8)], 10)
+
+top.wage.ny.2014 <- head(ny.emp.ind[order(ny.emp.ind[, 3], decreasing = TRUE), c(2, 3, 6)], 10)
+top.wage.ny.2015 <- head(ny.emp.ind[order(ny.emp.ind[, 4], decreasing = TRUE), c(2, 4, 7)], 10)
+top.wage.ny.2016 <- head(ny.emp.ind[order(ny.emp.ind[, 5], decreasing = TRUE), c(2, 5, 8)], 10)
+
+kable(list(top.wage.hi.2014, top.wage.ny.2014), "html", row.names = FALSE) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+
+kable(list(top.wage.hi.2015, top.wage.ny.2015), "html", row.names = FALSE) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+
+kable(list(top.wage.hi.2016, top.wage.ny.2016), "html", row.names = FALSE) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+```
+
+On the left is Hawaii, on the right is New York.  There are less shared industries bewteen the two states, though the average wages are roughly comparable.  What is far more shocking is the tiny number of people working these high paying jobs in Hawaii as opposed to New York.  We are starting to see that wage is a huge problem in Hawaii.  High paying jobs are few, and the more popular jobs are paid less than a similar state.
+
+<br>
+
+#### **F. Transportation **
+
+<br>
+
+Of course workers have to get to work if they are to earn a wage.  This will be the last variable we examine.  Transportation is a major factor in everyday income.  The further a person is from their job, the greater investment they have to put into transportation.  So how do Hawaii residents commute to work, and how do they fair against the nation and New York?
+
+```{r transportation}
+clean.trans <- function(df, year){
+  temp <- df
+  temp <- temp[, c(1, grep(year, colnames(temp)))]
+  temp <- temp[, c(1:3, 10:14, 20:22)]
+  colnames(temp) <- c("geo_name", "bicycle", "carpool", "drove", "home", "motorcycle", "other",
+                      "public_trans", "taxi", "walked", "total_workers")
+  temp[, c(2:10)] <- temp[, c(2:10)] / temp[, 11]
+  temp <- temp[, c(1:10)]
+  
+  sortvals <- colSums(temp[, 2:10])
+  temp <- temp[, c(1, order(sortvals, decreasing = TRUE) + 1)]
+  
+  return(temp)
+}
+
+ny.trans <- subset(transport, geo_name == "New York")
+comp.trans <- rbind(comp.trans, ny.trans)
+
+comp.trans <- comp.trans[, -grep("moe", colnames(comp.trans))]
+
+comp.trans.2013 <- clean.trans(comp.trans, 2013)
+comp.trans.2014 <- clean.trans(comp.trans, 2014)
+comp.trans.2015 <- clean.trans(comp.trans, 2015)
+comp.trans.2016 <- clean.trans(comp.trans, 2016)
+
+tr1 <- ggplot(melt(comp.trans.2013), aes(variable, value, fill = geo_name)) +
+  geom_bar(stat = "identity", colour = "black") +
+  labs(title = "Transportation 2013", x = "", y = "Percentage of Workers") +
+  scale_fill_brewer(palette = "Pastel1") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+tr2 <- ggplot(melt(comp.trans.2014), aes(variable, value, fill = geo_name)) +
+  geom_bar(stat = "identity", colour = "black") +
+  labs(title = "Transportation 2014", x = "", y = "Percentage of Workers") +
+  scale_fill_brewer(palette = "Pastel1") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+tr3 <- ggplot(melt(comp.trans.2015), aes(variable, value, fill = geo_name)) +
+  geom_bar(stat = "identity", colour = "black") +
+  labs(title = "Transportation 2015", x = "", y = "Percentage of Workers") +
+  scale_fill_brewer(palette = "Pastel1") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+tr4 <- ggplot(melt(comp.trans.2016), aes(variable, value, fill = geo_name)) +
+  geom_bar(stat = "identity", colour = "black") +
+  labs(title = "Transportation 2016", x = "", y = "Percentage of Workers") +
+  scale_fill_brewer(palette = "Pastel1") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+grid.arrange(tr1, tr2, ncol = 2)
+grid.arrange(tr3, tr4, ncol = 2)
+```
+
+Here is another clue as to the poor state of Hawaii's economy, and why the threshold for low-income is so high.  Most workers drive, which is true of the nation as a whole, but at least New Yorkers utilize a lot more public transit.  Hawaii residents attempt to mitigate matters by carpooling more than either the national average or New Yorkers, but this still requires ownership and maintenance of a car by one or more of the carpoolers.  All told, this is likely a much higher economic cost given what we've seen of the CPI-U.  Not only is the cost of a car likely higher in Hawaii than the mainland U.S., but so is maintenance in terms of gas, parts, and probably labor.
+
+<br>
+
+#### **G. Percent Change **
+
+<br>
+
+We have seen the raw numbers, but what does this mean on a year-to-year basis?  Are there any trends we can find?
+
+```{r rateOfChange}
+simple.percent.change <- function(df, list){
+  cols <- ncol(df)
+  temp <- df[, -cols]
+  
+  for(i in 2:ncol(temp)){
+    temp[, i] <- (-1) * (df[, i] - df[, i+1]) / df[, i]
+  }
+  colnames(temp) <- list
+  
+  return(temp)
+}
+
+percent.change <- function(df1, df2){
+  temp <- df1
+  
+  for(i in 2:ncol(df1)){
+    temp[, i] <- (-1) * (df1[, i] - df2[, i]) / df1[, i]
+  }
+  
+  return(temp)
+}
+
+# Percent Change CPI-U
+comp.cpi <- comp.cpi[, c(1, 75:78)]
+comp.cpi <- rbind(comp.cpi, comp.nyc[2,])
+diff.comp.cpi <- simple.percent.change(comp.cpi, c("geo_name", "diff13-14", "diff14-15", "diff15-16"))
+
+# Percent Change Wages
+diff.comp.wages <- simple.percent.change(comp.wages, c("geo_name", "diff14-15", "diff15-16"))
+
+# Percent Change Taxes & Value
+diff.tax.1 <- percent.change(tax.2013, tax.2014)
+diff.tax.2 <- percent.change(tax.2014, tax.2015)
+diff.tax.3 <- percent.change(tax.2015, tax.2016)
+diff.value.1 <- percent.change(value.2013, value.2014)
+diff.value.2 <- percent.change(value.2014, value.2015)
+diff.value.3 <- percent.change(value.2015, value.2016)
+
+# Percent Change Jobs
+diff.job.1 <- percent.change(comp.job.2014, comp.job.2015)
+diff.job.1 <- diff.job.1[, c(1, 3, 5)]
+diff.job.2 <- percent.change(comp.job.2015, comp.job.2016)
+diff.job.2 <- diff.job.2[, c(1, 3, 5)]
+```
+
+```{r CPI & Wage Change Graphs}
+dc <- ggplot(melt(diff.comp.cpi), aes(variable, value, fill = geo_name)) +
+  geom_bar(stat = "identity", position = "dodge", colour = "black") +
+  scale_fill_brewer(palette = "Accent") +
+  labs(title = "Percent Change in CPI-U 2013 - 2016", x = "Change in Year",
+       y = "CPI-U") +
+  theme_minimal()
+
+dw <- ggplot(melt(diff.comp.wages), aes(variable, value, fill = geo_name)) +
+  geom_bar(stat = "identity", position = "dodge", colour = "black") +
+  scale_fill_brewer(palette = "Accent") +
+  labs(title = "Percent Change in Avg Wage 2014 - 2016", x = "Change in Year",
+       y = "Wage") +
+  theme_minimal()
+
+grid.arrange(dc, dw, ncol = 2)
+```
+
+In examining the change in CPI-U vs change in wage, we see something astonishing happen between 2014 - 2015.  The CPI-U barely changed for the rest of the nation in 2015, and yet Hawaii saw an increase.  It's a small one, relative to the other years, but also a significant one.  We see this reflected in the average wage, which makes sense as the CPI-U is utilized to calculate HUD's limits on income.  We begin to see that Hawaii is a very unique case.
+
+```{r Tax Change Graphs}
+dt1 <- ggplot(melt(diff.tax.1), aes(variable, value, fill = geo_name)) +
+  geom_bar(stat = "identity", position = "dodge", colour = "black") +
+  scale_fill_brewer(palette = "Dark2") +
+  labs(title = "Percent Change Property Tax 2013 - 2014",
+       x = "Change in Households", y = "Households") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+dt2 <- ggplot(melt(diff.tax.2), aes(variable, value, fill = geo_name)) +
+  geom_bar(stat = "identity", position = "dodge", colour = "black") +
+  scale_fill_brewer(palette = "Dark2") +
+  labs(title = "Percent Change Property Tax 2014 - 2015",
+       x = "Change in Households", y = "Households") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+dt3 <- ggplot(melt(diff.tax.3), aes(variable, value, fill = geo_name)) +
+  geom_bar(stat = "identity", position = "dodge", colour = "black") +
+  scale_fill_brewer(palette = "Dark2") +
+  labs(title = "Percent Change Property Tax 2015 - 2016",
+       x = "Change in Households", y = "Households") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+grid.arrange(dt1, dt2, dt3, ncol = 3)
+```
+
+Again, there is a major dip in 2014-2015.  More households paid either no property tax, or > 3000 in Hawaii in the 2013-2014 and 2015-2016 years, but everyone saw a drop in 2014-15.
+
+
+```{r Value Change Graphs}
+ggplot(melt(diff.value.1), aes(variable, value, fill = geo_name)) +
+  geom_bar(stat = "identity", position = "dodge", colour = "black") +
+  scale_fill_brewer(palette = "Set3") +
+  labs(title = "Percent Change in Property Value 2013 - 2014",
+       x = "Change in Households", y = "Number of owners") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+ggplot(melt(diff.value.2), aes(variable, value, fill = geo_name)) +
+  geom_bar(stat = "identity", position = "dodge", colour = "black") +
+  scale_fill_brewer(palette = "Set3") +
+  labs(title = "Percent Change in Property Value 2014 - 2015",
+       x = "Change in Households", y = "Number of owners") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+ggplot(melt(diff.value.3), aes(variable, value, fill = geo_name)) +
+  geom_bar(stat = "identity", position = "dodge", colour = "black") +
+  scale_fill_brewer(palette = "Set3") +
+  labs(title = "Percent Change in Property Value 2015 - 2016",
+       x = "Change in Households", y = "Number of owners") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+For property values, it seems that while it is high in Hawaii, the market itself can be rather volatile with the number of owners fluctuating over our small window of data.  Again, the ratio of Hawaii to the rest of the nation is exceptionally large.
+
+```{r Change in Jobs Graph}
+dj1 <- ggplot(melt(diff.job.1), aes(variable, value, fill = job)) +
+  geom_bar(stat = "identity", colour = "black") +
+  scale_fill_brewer(palette = "Pastel2") +
+  labs(title = "Percent Change in Top Jobs 2014 - 2015",
+       x = "Location", y = "Number of Workers") +
+  theme_minimal()
+
+dj2 <- ggplot(melt(diff.job.2), aes(variable, value, fill = job)) +
+  geom_bar(stat = "identity", colour = "black") +
+  scale_fill_brewer(palette = "Pastel2") +
+  labs(title = "Percent Change in Top Jobs 2015 - 2016",
+       x = "Location", y = "Number of Workers") +
+  theme_minimal()
+
+grid.arrange(dj1, dj2, ncol = 2)
+```
+
+Lastly, for jobs shared between New York and Hawaii, we see a large dip for Hawaii regarding college faculty.  They left the state in 2015 and 2016.  Although 2015 seemed to be a rough year for other industries as well, they rebounded in 2016 whereas college educators did not.  Construction, on the other hand, seems to be a strong industry over this small period of time.
+
+<br>
+
+# **4. Conclusion**
+
+<br>
+
+We understand why HUD's income limits are so high for Hawaii.  It is a combination of inflation, low wages, high property values, property owned by non-residents, and a reliance on driving.  For locals, none of this is surprising.  As with New York City, there is a backlash by residents against foreign investors.  Hawaii is also building a light rail system, and while that likely contributes to the uptick in construction, it has been fraught with its own controversies.
+
+Given our limited dataset, we are unable to offer any other concrete suggestions to fix this problem.  Some general ideas are to invest heavily in alternative energy such as geothermal, wind, wave, and solar, so that fossil fuels do not need to be imported as regularly, since that was a large contribution to Hawaii's CPI-U.  This would also help the job problem in which there was an obvious lack of high paying jobs in the state as compared to New York.  Lastly, Hawaii should work at improving its public transit so that workers need not have the added expense of purchasing/maintaining a car.
+
+Not of this is guaranteed, however.  Hawaii's unique position as an island means that all of these infrastructure heavy developments would require yet more import of raw materials, making such an investment quite costly.  Also, even if high paying, specialized jobs were to follow, we see that the barrier to entry is quite high, and the state might not be able to attract enough workers.  With more time and data, we could examine the trend of Hawaii's CPI-U relative to the nation, or examine how the state's wage growth manages to keep up with inflation.  Perhaps there needs to be a better analogue to Hawaii than New York City, because even though it is an island, it is quite close to the rest of the U.S.  Japan, or Australia might prove interesting.  Alaska may also prove to be an interesting comparison due to its isolation, though its weather means it probably suffers a harsher labor shortage.
+
+In short, Hawaii may have to look elsewhere for inspiration if it wants to make it easier for its residents.  In some respects, it might be best if the state tried to act as independently as possible from the rest of the U.S., as so many of its logistical problems are unique.
