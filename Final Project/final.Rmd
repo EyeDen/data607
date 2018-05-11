@@ -93,6 +93,9 @@ pop <- read.csv("https://api.datausa.io/api/csv/?show=geo&sumlevel=state&force=a
 pop <- basic.clean(pop)
 comp.pop <- comp.data(pop)
 
+poverty <- read.csv("https://api.datausa.io/api/csv/?show=geo&sumlevel=state&force=acs.yg_poverty_race")
+poverty <- basic.clean(poverty)
+
 transport <- read.csv("https://api.datausa.io/api/csv/?show=geo&sumlevel=state&force=acs.yg_transport")
 transport <- basic.clean(transport)
 comp.trans <- comp.data(transport)
@@ -280,7 +283,36 @@ low.income[4] <- sum(dist.2016[,1:10])
 mean(low.income)
 ```
 
-As we can see, the average overall four years is roughly 43%.  That is a lot of people, and granted we made some big assumptions to calculate it, but this puts it in context.  Now, low-income does not mean poor, at least by how the Census defines "poverty".  The Census Bureau calculates the poverty threshold each year, and it usually falls below what HUD calls "extremely low-income".  Regardless, being within this range must affect quality of life by some degree.
+As we can see, the average overall four years is roughly 43%.  That is a lot of people, and granted we made some big assumptions to calculate it, but this puts it in context.  Now, low-income does not mean poor, at least by how the Census defines "poverty".  The Census Bureau calculates the poverty threshold each year, and it usually falls below what HUD calls "extremely low-income".  Using ACS data, we can calculate how many people in Hawaii are actually poor.
+
+```{r poverty}
+poverty <- poverty[, -grep("moe", colnames(poverty))]
+poverty$poverty_2013 <- rowSums(poverty[, c(2:10)])
+poverty$poverty_2014 <- rowSums(poverty[, c(11:19)])
+poverty$poverty_2015 <- rowSums(poverty[, c(20:28)])
+poverty$poverty_2016 <- rowSums(poverty[, c(29:37)])
+
+poverty <- poverty[, c(1, 38:41)]
+poverty <- poverty[-c(9, 52), ]
+pop <- pop[-c(9, 52), ]
+poverty[, c(2:5)] <- poverty[, c(2:5)] / pop[, c(2:5)]
+poverty[, 1] <- tolower(poverty[, 1])
+
+ggplot(melt(poverty), aes(map_id = geo_name)) +
+  geom_map(aes(fill = value), map = fifty_states) +
+  expand_limits(x = fifty_states$long, y = fifty_states$lat) +
+  coord_map() +
+  scale_x_continuous(breaks = NULL) +
+  scale_y_continuous(breaks = NULL) +
+  labs(title = "Poverty Percentage") +
+  facet_wrap(~ variable, ncol = 2) +
+  theme(legend.position = "bottom",
+        legend.text = element_text(angle = 90, hjust = 1),
+        panel.background = element_blank())
+
+```
+
+In terms of poverty numbers, Hawaii seems to be among the lowest in the nation, with less than 15% of their population.  This probably puts our estimate of low-income people much lower than 40%, yet even though these people aren't poor, being low-income would likely affect their quality of life.  For instance, how much of their pay goes towards everyday goods and services.  For this we need to examine the consumer price index.    
 
 <br>
 
